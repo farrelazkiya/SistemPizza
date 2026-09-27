@@ -3,105 +3,150 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Pizza Craft - Sistem Persediaan Perpetual</title>
-    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700&display=swap" rel="stylesheet">
+    <title>Pizza Craft - Sistem ERP & Akuntansi</title>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="../css/style.css">
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 </head>
 <body>
-    <header class="navbar">
-        <div class="container">
-            <h1>🍕 Pizza Craft Inventory</h1>
-            <p>Sistem Akuntansi Persediaan & Valuasi HPP (Metode Perpetual)</p>
-        </div>
-    </header>
-
-    <main class="container layout">
-        <!-- PANEL KIRI: FORM TRANSAKSI -->
-        <aside class="card sticky-form">
-            <h2>📝 Catat Mutasi Stok</h2>
-            <form id="transaction-form">
-                <div class="form-group">
-                    <label>Pilih Bahan Baku</label>
-                    <select id="ingredient_id" required><option>Memuat...</option></select>
-                </div>
-                <div class="form-group">
-                    <label>Jenis Mutasi</label>
-                    <select id="type" required>
-                        <option value="IN">📥 Pembelian / Barang Masuk</option>
-                        <option value="OUT">📤 Pemakaian / Barang Keluar (HPP)</option>
-                    </select>
-                </div>
-                <div class="form-group">
-                    <label>Jumlah Kuantitas</label>
-                    <input type="number" id="qty" step="0.1" required placeholder="Contoh: 5">
-                </div>
-                <button type="submit" class="btn">Simpan Jurnal Transaksi</button>
-            </form>
+    <div class="app-container">
+        <!-- SIDEBAR KIRI -->
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <h2>🍕 Pizza Craft</h2>
+                <p>ERP & Accounting System</p>
+            </div>
+            <ul class="sidebar-menu">
+                <li class="active" onclick="switchPage('page-dashboard', this)">📊 Dashboard Utama</li>
+                <li onclick="switchPage('page-transaksi', this)">📝 Catat Transaksi</li>
+                <li onclick="switchPage('page-jurnal', this)">📖 Buku Besar & Laporan</li>
+            </ul>
         </aside>
 
-        <!-- PANEL KANAN: LAPORAN AKUNTANSI -->
-        <section class="content">
+        <!-- KONTEN KANAN -->
+        <main class="main-content">
             
-            <!-- 1. TOTAL ASET -->
-            <div class="card summary-card">
-                <h3>💰 Total Valuasi Persediaan Bahan Baku (Aset Lancar)</h3>
-                <h1 id="total-asset-value">Rp 0</h1>
-            </div>
-
-            <!-- 2. ANALISIS HARIAN (FITUR BARU) -->
-            <div class="card analysis-card">
-                <div class="analysis-header">
-                    <h3>📈 Analisis Pemakaian Bahan (HPP)</h3>
-                    <span id="today-date" class="badge-date">Hari Ini</span>
+            <!-- HALAMAN 1: DASHBOARD -->
+            <section id="page-dashboard" class="page-section active">
+                <div class="header-title flex-between">
+                    <div>
+                        <h1>Dashboard Persediaan</h1>
+                        <p>Ringkasan aset, HPP, dan manajemen kontrol stok.</p>
+                    </div>
                 </div>
-                <h1 id="today-usage-value" class="text-danger">Rp 0</h1>
-                <p class="subtitle">Total Beban Pokok Penjualan yang terjadi hari ini</p>
-                <div class="usage-list-container">
-                    <ul id="today-usage-list" class="usage-list">
-                        <li>Memuat data...</li>
-                    </ul>
+
+                <!-- FITUR 2: Peringatan Dini Stok Kritis -->
+                <div id="alert-container" class="alert-box hidden">
+                    <h3>⚠️ Peringatan Restock!</h3>
+                    <ul id="alert-list"></ul>
                 </div>
-            </div>
 
-            <!-- 3. KARTU STOK -->
-            <div class="card">
-                <h3>📊 Kartu Stok & Nilai Persediaan Aktual</h3>
-                <table class="table">
-                    <thead>
-                        <tr>
-                            <th>Bahan Baku</th>
-                            <th>Stok Sisa</th>
-                            <th>Harga/Unit</th>
-                            <th>Total Nilai (Rp)</th>
-                        </tr>
-                    </thead>
-                    <tbody id="inventory-table">
-                        <tr><td colspan="4">Memuat data dari Supabase...</td></tr>
-                    </tbody>
-                </table>
-            </div>
+                <div class="cards-grid">
+                    <div class="card summary-card asset-card">
+                        <h3>💰 Total Aset Persediaan</h3>
+                        <h1 id="total-asset-value">Rp 0</h1>
+                    </div>
+                    <div class="card summary-card hpp-card">
+                        <h3>📈 HPP / Pemakaian Hari Ini</h3>
+                        <h1 id="today-usage-value">Rp 0</h1>
+                    </div>
+                </div>
 
-            <!-- 4. BUKU JURNAL UMUM (FITUR BARU) -->
-            <div class="card">
-                <h3>📖 Buku Jurnal Umum (Metode Perpetual)</h3>
-                <table class="table journal-table">
-                    <thead>
-                        <tr>
-                            <th>Tanggal</th>
-                            <th>Nama Akun & Keterangan</th>
-                            <th>Debit (Rp)</th>
-                            <th>Kredit (Rp)</th>
-                        </tr>
-                    </thead>
-                    <tbody id="journal-table">
-                        <tr><td colspan="4">Memuat jurnal...</td></tr>
-                    </tbody>
-                </table>
-            </div>
+                <div class="card">
+                    <h3>📊 Kartu Stok & Nilai Persediaan Aktual</h3>
+                    <table class="table">
+                        <thead>
+                            <tr>
+                                <th>Bahan Baku</th>
+                                <th>Sisa Stok</th>
+                                <th>Batas Min.</th>
+                                <th>Total Nilai (Rp)</th>
+                            </tr>
+                        </thead>
+                        <tbody id="inventory-table">
+                            <tr><td colspan="4">Memuat data...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
 
-        </section>
-    </main>
+            <!-- HALAMAN 2: INPUT TRANSAKSI -->
+            <section id="page-transaksi" class="page-section">
+                <div class="header-title">
+                    <h1>Catat Mutasi Stok (Audit Trail)</h1>
+                    <p>Catat masuk/keluarnya barang beserta dokumen sumbernya.</p>
+                </div>
+
+                <div class="card form-card">
+                    <form id="transaction-form">
+                        <div class="form-group">
+                            <label>Pilih Bahan Baku</label>
+                            <select id="ingredient_id" required><option>Memuat...</option></select>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label>Jenis Transaksi (Pengaruh Akuntansi)</label>
+                            <select id="type" onchange="toggleDynamicFields()" required>
+                                <option value="IN">📥 Pemasukan / Pembelian (Debit Persediaan)</option>
+                                <option value="OUT">📤 Pengeluaran / Pemakaian (Debit HPP)</option>
+                            </select>
+                        </div>
+
+                        <!-- FITUR 1: Kolom Dinamis Supplier / Menu -->
+                        <div class="form-group" id="group-supplier">
+                            <label>Dibeli dari (Supplier)</label>
+                            <select id="supplier_id"><option value="">-- Pilih Supplier --</option></select>
+                        </div>
+                        
+                        <div class="form-group hidden" id="group-menu">
+                            <label>Digunakan untuk (Produksi Menu)</label>
+                            <select id="menu_item_id"><option value="">-- Pilih Menu Pizza --</option></select>
+                        </div>
+
+                        <div class="form-group">
+                            <label>Kuantitas (Jumlah)</label>
+                            <input type="number" id="qty" step="0.1" required placeholder="Contoh: 5">
+                        </div>
+                        <button type="submit" class="btn">Simpan Jurnal & Update Stok</button>
+                    </form>
+                </div>
+            </section>
+
+            <!-- HALAMAN 3: BUKU BESAR PEMBANTU & JURNAL -->
+            <section id="page-jurnal" class="page-section">
+                <div class="header-title flex-between">
+                    <div>
+                        <h1>Buku Jurnal Umum</h1>
+                        <p>Rekapitulasi otomatis metode perpetual.</p>
+                    </div>
+                    <div style="display: flex; gap: 10px;">
+                        <!-- FITUR 3: Filter Buku Besar Pembantu -->
+                        <select id="filter-ingredient" onchange="applyLedgerFilter()" class="filter-select">
+                            <option value="">Semua Bahan (Jurnal Umum)</option>
+                        </select>
+                        <button onclick="downloadExcel()" class="btn btn-export">📥 Excel</button>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <table class="table journal-table">
+                        <thead>
+                            <tr>
+                                <th>Tanggal</th>
+                                <th>Keterangan Transaksi / Akun</th>
+                                <th>Debit (Rp)</th>
+                                <th>Kredit (Rp)</th>
+                            </tr>
+                        </thead>
+                        <tbody id="journal-table">
+                            <tr><td colspan="4">Memuat jurnal...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+
+        </main>
+    </div>
 
     <script src="../js/app.js"></script>
 </body>
