@@ -1,0 +1,37 @@
+* { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Plus Jakarta Sans', sans-serif; }
+body { background: #f8fafc; color: #0f172a; line-height: 1.5; padding-bottom: 40px; }
+.container { max-width: 1100px; margin: 0 auto; padding: 0 20px; }
+.navbar { background: #b91c1c; color: white; padding: 20px 0; margin-bottom: 30px; border-bottom: 4px solid #7f1d1d; }
+.navbar h1 { font-size: 1.5rem; }
+.navbar p { font-size: 0.9rem; opacity: 0.9; }
+
+.layout { display: grid; grid-template-columns: 350px 1fr; gap: 24px; align-items: start; }
+.sticky-form { position: sticky; top: 20px; } /* Form menempel saat di-scroll */
+.card { background: white; padding: 24px; border-radius: 12px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1); margin-bottom: 24px; }
+.summary-card { background: #0f172a; color: white; text-align: center; }
+.summary-card h1 { font-size: 2.5rem; color: #4ade80; margin-top: 10px; }
+
+/* CSS BARU: Analisis Harian */
+.analysis-card { background: #fff1f2; border: 1px solid #fecdd3; }
+.analysis-header { display: flex; justify-content: space-between; align-items: center; }
+.badge-date { background: #be123c; color: white; padding: 4px 12px; border-radius: 20px; font-size: 0.8rem; font-weight: bold; }
+.text-danger { font-size: 2.2rem; color: #be123c; margin: 10px 0 5px; }
+.subtitle { font-size: 0.85rem; color: #881337; margin-bottom: 15px; }
+.usage-list-container { background: white; padding: 15px; border-radius: 8px; border: 1px dashed #fda4af; }
+.usage-list { list-style-type: none; font-size: 0.9rem; }
+.usage-list li { padding: 6px 0; border-bottom: 1px solid #ffe4e6; display: flex; justify-content: space-between; }
+.usage-list li:last-child { border-bottom: none; }
+
+.form-group { margin-bottom: 16px; }
+label { display: block; font-weight: 600; margin-bottom: 6px; font-size: 0.9rem; }
+input, select { width: 100%; padding: 10px; border: 1px solid #cbd5e1; border-radius: 6px; }
+.btn { width: 100%; padding: 12px; background: #b91c1c; color: white; border: none; border-radius: 6px; font-weight: bold; cursor: pointer; }
+.btn:hover { background: #991b1b; }
+
+.table { width: 100%; border-collapse: collapse; margin-top: 15px; font-size: 0.9rem; }
+.table th, .table td { padding: 12px; text-align: left; border-bottom: 1px solid #e2e8f0; }
+.table th { background: #f1f5f9; font-size: 0.85rem; text-transform: uppercase; }
+
+/* CSS BARU: Indentasi Akun Kredit di Jurnal */
+.acc-kredit { padding-left: 30px; color: #475569; }
+.text-right { text-align: right; }
