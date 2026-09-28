@@ -4,10 +4,13 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Pizza Craft - Sistem ERP & Akuntansi</title>
+    
+    <!-- Font dan Library Eksternal (Supabase & ChartJS) -->
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
-    
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script> <!-- FITUR BARU: Chart JS -->
     
+    <!-- Link ke file CSS yang ada di folder yang sama (root) -->
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -33,30 +36,43 @@
                 <div class="header-title flex-between">
                     <div>
                         <h1>Dashboard Persediaan</h1>
-                        <p>Ringkasan aset, HPP, dan manajemen kontrol stok.</p>
+                        <p>Ringkasan aset, analisis komposisi, dan manajemen kontrol stok.</p>
                     </div>
                 </div>
 
-                <!-- FITUR 2: Peringatan Dini Stok Kritis -->
+                <!-- Peringatan Dini Stok Kritis -->
                 <div id="alert-container" class="alert-box hidden">
                     <h3>⚠️ Peringatan Restock!</h3>
                     <ul id="alert-list"></ul>
                 </div>
 
-                <div class="cards-grid">
-                    <div class="card summary-card asset-card">
-                        <h3>💰 Total Aset Persediaan</h3>
-                        <h1 id="total-asset-value">Rp 0</h1>
+                <!-- FITUR BARU: Grid Atas dengan Grafik & Summary -->
+                <div class="dashboard-grid">
+                    <!-- Grafik Aset -->
+                    <div class="card">
+                        <h3 style="margin-bottom: 15px; color: #1e293b; font-size: 1rem;">📊 Komposisi Nilai Aset</h3>
+                        <div class="chart-container">
+                            <canvas id="inventoryChart"></canvas>
+                        </div>
                     </div>
-                    <div class="card summary-card hpp-card">
-                        <h3>📈 HPP / Pemakaian Hari Ini</h3>
-                        <h1 id="today-usage-value">Rp 0</h1>
+
+                    <!-- Kartu Summary -->
+                    <div class="cards-grid">
+                        <div class="card summary-card asset-card">
+                            <h3>💰 Total Aset Persediaan</h3>
+                            <h1 id="total-asset-value">Rp 0</h1>
+                        </div>
+                        <div class="card summary-card hpp-card">
+                            <h3>📈 HPP / Pemakaian Hari Ini</h3>
+                            <h1 id="today-usage-value">Rp 0</h1>
+                        </div>
                     </div>
                 </div>
 
+                <!-- Tabel Kartu Stok -->
                 <div class="card">
-                    <h3>📊 Kartu Stok & Nilai Persediaan Aktual</h3>
-                    <table class="table">
+                    <h3>📑 Kartu Stok & Nilai Persediaan Aktual</h3>
+                    <table class="table" style="margin-top: 15px;">
                         <thead>
                             <tr>
                                 <th>Bahan Baku</th>
@@ -94,7 +110,6 @@
                             </select>
                         </div>
 
-                        <!-- FITUR 1: Kolom Dinamis Supplier / Menu -->
                         <div class="form-group" id="group-supplier">
                             <label>Dibeli dari (Supplier)</label>
                             <select id="supplier_id"><option value="">-- Pilih Supplier --</option></select>
@@ -109,7 +124,7 @@
                             <label>Kuantitas (Jumlah)</label>
                             <input type="number" id="qty" step="0.1" required placeholder="Contoh: 5">
                         </div>
-                        <button type="submit" class="btn">Simpan Jurnal & Update Stok</button>
+                        <button type="submit" class="btn">💾 Simpan Jurnal & Update Stok</button>
                     </form>
                 </div>
             </section>
@@ -121,11 +136,12 @@
                         <h1>Buku Jurnal Umum</h1>
                         <p>Rekapitulasi otomatis metode perpetual.</p>
                     </div>
-                    <div style="display: flex; gap: 10px;">
-                        <!-- FITUR 3: Filter Buku Besar Pembantu -->
+                    <div style="display: flex; gap: 10px; align-items: center;">
                         <select id="filter-ingredient" onchange="applyLedgerFilter()" class="filter-select">
                             <option value="">Semua Bahan (Jurnal Umum)</option>
                         </select>
+                        <!-- FITUR BARU: Tombol Cetak PDF -->
+                        <button onclick="window.print()" class="btn btn-print">🖨️ Cetak PDF</button>
                         <button onclick="downloadExcel()" class="btn btn-export">📥 Excel</button>
                     </div>
                 </div>
@@ -135,13 +151,14 @@
                         <thead>
                             <tr>
                                 <th>Tanggal</th>
+                                <th>Tipe</th>
                                 <th>Keterangan Transaksi / Akun</th>
                                 <th>Debit (Rp)</th>
                                 <th>Kredit (Rp)</th>
                             </tr>
                         </thead>
                         <tbody id="journal-table">
-                            <tr><td colspan="4">Memuat jurnal...</td></tr>
+                            <tr><td colspan="5">Memuat jurnal...</td></tr>
                         </tbody>
                     </table>
                 </div>
@@ -150,6 +167,7 @@
         </main>
     </div>
 
+    <!-- Link ke file JavaScript yang ada di folder yang sama (root) -->
     <script src="app.js"></script>
 </body>
 </html>
