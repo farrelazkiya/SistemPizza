@@ -7,6 +7,8 @@
     
     <!-- Font dan Library Eksternal (Supabase & ChartJS) -->
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <script>window.tailwind = window.tailwind || {}; window.tailwind.config = { corePlugins: { preflight: false } };</script>
+    <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script> <!-- FITUR BARU: Chart JS -->
     
@@ -47,6 +49,10 @@
                 <div id="alert-container" class="alert-box hidden">
                     <h3>⚠️ Peringatan Restock!</h3>
                     <ul id="alert-list"></ul>
+                </div>
+                <div id="expiry-alert-container" class="alert-box hidden">
+                    <h3>⏳ Peringatan Batch Kedaluwarsa</h3>
+                    <ul id="expiry-alert-list"></ul>
                 </div>
 
                 <!-- FITUR BARU: Grid Atas dengan Grafik & Summary -->
@@ -89,6 +95,64 @@
                         </tbody>
                     </table>
                 </div>
+
+                <section class="mt-8">
+                    <div class="mb-5">
+                        <h2 class="text-2xl font-bold text-slate-800">Food Waste & Stok Opname</h2>
+                        <p class="text-slate-600">Catat bahan rusak dan sesuaikan saldo berdasarkan hasil hitung fisik.</p>
+                    </div>
+                    <div class="grid grid-cols-1 gap-6 xl:grid-cols-2">
+                        <div class="card">
+                            <h3 class="mb-4 text-lg font-bold text-slate-800">Catat Food Waste</h3>
+                            <form id="food-waste-form">
+                                <div class="form-group">
+                                    <label for="food-waste-ingredient">Bahan Baku</label>
+                                    <select id="food-waste-ingredient" required>
+                                        <option value="">Memuat bahan baku...</option>
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label for="food-waste-quantity">Jumlah Rusak</label>
+                                    <input id="food-waste-quantity" type="number" min="0.01" step="0.01" required>
+                                </div>
+                                <div class="form-group">
+                                    <label for="food-waste-reason">Alasan</label>
+                                    <select id="food-waste-reason" required>
+                                        <option value="">-- Pilih alasan --</option>
+                                        <option value="FOOD_WASTE_EXPIRED">Kedaluwarsa</option>
+                                        <option value="FOOD_WASTE_DROPPED">Jatuh</option>
+                                        <option value="FOOD_WASTE_DOUGH_FAILED">Adonan Gagal</option>
+                                    </select>
+                                </div>
+                                <button class="btn" type="submit">Catat Food Waste</button>
+                            </form>
+                            <p class="report-note">Jurnal otomatis: Debit Beban Kerusakan Persediaan, Kredit Persediaan Bahan Baku.</p>
+                        </div>
+
+                        <div class="card">
+                            <div class="mb-4 flex flex-wrap items-center justify-between gap-3">
+                                <div>
+                                    <h3 class="text-lg font-bold text-slate-800">Stok Opname</h3>
+                                    <p class="text-sm text-slate-600">Isi jumlah fisik setiap bahan; hanya selisih yang disesuaikan.</p>
+                                </div>
+                                <button id="stocktake-refresh" class="btn" type="button">Muat Ulang</button>
+                            </div>
+                            <form id="stocktake-form">
+                                <div class="table-scroll">
+                                    <table class="table">
+                                        <thead>
+                                            <tr><th>Bahan Baku</th><th>Stok Sistem</th><th>Stok Fisik</th><th>Selisih</th></tr>
+                                        </thead>
+                                        <tbody id="stocktake-table">
+                                            <tr><td colspan="4">Memuat stok...</td></tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+                                <button class="btn mt-4" id="stocktake-submit" type="submit">Simpan Hasil Stok Opname</button>
+                            </form>
+                        </div>
+                    </div>
+                </section>
             </section>
 
             <!-- HALAMAN 2: KASIR -->
@@ -213,8 +277,17 @@
                         </div>
 
                         <div class="form-group" id="group-purchase-price">
-                            <label for="inventory-unit-price">Harga tetap supplier per satuan (Rp)</label>
+                            <label for="inventory-unit-price">Harga beli / unit_cost per satuan (Rp)</label>
                             <input type="number" id="inventory-unit-price" readonly required>
+                        </div>
+
+                        <div class="form-group hidden" id="group-batch-number">
+                            <label for="inventory-batch-number">Nomor Batch</label>
+                            <input type="text" id="inventory-batch-number" maxlength="100" placeholder="Nomor batch dari supplier">
+                        </div>
+                        <div class="form-group hidden" id="group-expiry-date">
+                            <label for="inventory-expiry-date">Tanggal Kedaluwarsa</label>
+                            <input type="date" id="inventory-expiry-date">
                         </div>
                         
                         <div class="form-group hidden" id="group-waste-reason">

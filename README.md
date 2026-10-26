@@ -46,7 +46,18 @@ Sistem ini tidak hanya mencatat data, tetapi juga memiliki fungsi analitik dan p
    - GoFood dan GrabFood otomatis dikenakan komisi platform 20%, dicatat sebagai beban; sisa penjualan dicatat sebagai piutang platform.
    - Jurnal penjualan menyimpan metode pembayaran dan komisi, serta menampilkan akun debit/kredit.
 
-6. **🖨️ Ekspor & Cetak Dokumen Resmi**
+6. **♻️ Food Waste & Stok Opname**
+   - Mencatat bahan kedaluwarsa, jatuh, atau adonan gagal sebagai beban kerusakan persediaan.
+   - Form stok opname membandingkan stok sistem dengan hitung fisik dan membuat jurnal penyesuaian selisih lebih/kurang.
+   - Penyesuaian dilakukan secara atomik di database; stok yang berubah sejak form dimuat harus dimuat ulang sebelum disimpan.
+
+7. **📦 Batch Tracking & FIFO**
+   - Catat nomor batch, tanggal kedaluwarsa, dan biaya beli per unit saat stok masuk.
+   - Dashboard memberi peringatan untuk batch yang sudah kedaluwarsa atau akan kedaluwarsa dalam tiga hari.
+   - Penjualan dan pengeluaran persediaan memakai batch dengan tanggal kedaluwarsa terdekat terlebih dahulu (FEFO); jika tanggal sama atau tidak tersedia, gunakan batch yang diterima lebih dahulu.
+   - HPP dihitung dari biaya aktual batch yang terpakai, dan alokasi batch tersimpan sebagai jejak audit.
+
+8. **🖨️ Ekspor & Cetak Dokumen Resmi**
    - **Cetak PDF:** Layout khusus pencetakan dokumen formal (otomatis menghilangkan elemen antarmuka seperti sidebar dan tombol saat dicetak).
    - **Download Excel (.csv):** Mengunduh seluruh riwayat *Audit Trail* ke dalam format CSV untuk analisis lanjutan menggunakan Spreadsheet.
 
@@ -54,7 +65,7 @@ Sistem ini tidak hanya mencatat data, tetapi juga memiliki fungsi analitik dan p
 
 ## 🛠️ Teknologi yang Digunakan (*Tech Stack*)
 
-- **Frontend:** HTML5, CSS3, Vanilla JavaScript (Arsitektur file terpisah standar).
+- **Frontend:** HTML5, CSS3, Tailwind CSS via CDN, Vanilla JavaScript (Arsitektur file terpisah standar).
 - **Backend / Database:** [Supabase](https://supabase.com/) (PostgreSQL-as-a-Service) terintegrasi langsung via CDN.
 - **Data Visualization:** [Chart.js](https://www.chartjs.org/) CDN.
 - **Deployment:** GitHub Pages.
@@ -73,6 +84,7 @@ Database dirancang dengan konsep *Relational Database Management System* (RDBMS)
 6. `supplier_ingredients`: Daftar bahan yang dipasok beserta harga tetap per supplier.
 7. `menu_recipes`, `sales`, dan `sale_items`: Resep, transaksi kasir, dan rincian penjualan.
 8. `operating_expenses`: Catatan biaya operasional dan status pembayarannya.
+9. `inventory_batches` dan `inventory_batch_consumptions`: Saldo tiap batch, biaya per unit, tanggal kedaluwarsa, dan rincian pemakaian berdasarkan FEFO/FIFO.
 
 ---
 
@@ -87,7 +99,7 @@ Jika ingin mengembangkan atau menjalankan aplikasi ini di komputer lokal:
 2. Buka folder `SistemPizza` di *code editor* pilihanmu (misalnya VS Code).
 3. Karena aplikasi ini menggunakan Vanilla JS dengan CDN Supabase, kamu cukup membuka file `index.html` menggunakan *browser* (direkomendasikan menggunakan ekstensi **Live Server** di VS Code).
 4. *Catatan:* Konfigurasi URL dan API Key Supabase sudah diinisialisasi secara statis di dalam file `app.js` menggunakan *Anon Key*.
-5. Untuk database Supabase yang sudah memiliki skema dan data awal aplikasi, jalankan migrasi SQL di folder `Backend` sesuai urutan: `point_of_sale.sql`, `financial_reports.sql`, `suppliers_and_spoilage.sql`, lalu `multi_payment.sql`. Migrasi terakhir menambahkan dukungan metode pembayaran kasir dan komisi platform.
+5. Untuk database Supabase yang sudah memiliki skema dan data awal aplikasi, jalankan migrasi SQL di folder `Backend` sesuai urutan: `point_of_sale.sql`, `financial_reports.sql`, `suppliers_and_spoilage.sql`, `multi_payment.sql`, `food_waste_stocktake.sql`, lalu `batch_fifo.sql`. Migrasi terakhir mengaktifkan pelacakan batch, peringatan kedaluwarsa, dan HPP berbasis FIFO/FEFO. Stok yang sudah ada akan dimasukkan ke batch pembukaan dengan biaya unit rata-rata saat migrasi dijalankan.
 
 ---
 *Dibuat untuk memenuhi tugas Ujian Tengah Semester (UTS) / Evaluasi Proyek Mata Kuliah Sistem Informasi Akuntansi.*

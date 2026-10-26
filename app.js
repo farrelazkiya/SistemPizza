@@ -2,6 +2,13 @@ const SUPABASE_URL = "https://llpcuhsotoadmljeryhz.supabase.co";
 const SUPABASE_ANON_KEY = "sb_publishable_qEmqkUCuZgmTBmwTSLMvNg_1mVAjU9p"; 
 const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 const formatRp = (num) => Number(num).toLocaleString('id-ID');
+const inventoryLogCost = (log) => {
+    const batchConsumptions = log.inventory_batch_consumptions || [];
+    return batchConsumptions.length
+        ? batchConsumptions.reduce((sum, consumption) =>
+            sum + Number(consumption.quantity) * Number(consumption.unit_cost), 0)
+        : Number(log.qty) * Number(log.unit_price_at_time);
+};
 
 // Variabel Global untuk menyimpan instance ChartJS agar bisa di-update
 let inventoryChartInstance = null;
@@ -29,16 +36,22 @@ function toggleDynamicFields() {
     const type = document.getElementById('type').value;
     const isPurchase = type === 'IN';
     document.getElementById('inventory-unit-price').required = isPurchase;
+    document.getElementById('inventory-batch-number').required = isPurchase;
+    document.getElementById('inventory-expiry-date').required = isPurchase;
     document.getElementById('inventory-waste-reason').required = !isPurchase;
     if (type === 'IN') {
         document.getElementById('group-supplier').classList.remove('hidden');
         document.getElementById('group-payment').classList.remove('hidden');
         document.getElementById('group-purchase-price').classList.remove('hidden');
+        document.getElementById('group-batch-number').classList.remove('hidden');
+        document.getElementById('group-expiry-date').classList.remove('hidden');
         document.getElementById('group-waste-reason').classList.add('hidden');
     } else {
         document.getElementById('group-supplier').classList.add('hidden');
         document.getElementById('group-payment').classList.add('hidden');
         document.getElementById('group-purchase-price').classList.add('hidden');
+        document.getElementById('group-batch-number').classList.add('hidden');
+        document.getElementById('group-expiry-date').classList.add('hidden');
         document.getElementById('group-waste-reason').classList.remove('hidden');
     }
 }
@@ -254,12 +267,22 @@ function renderChart(labels, dataValues) {
 
 async function loadInventory() {
     const { data, error } = await supabaseClient.from('ingredients').select('*').order('id');
-    if (error) return console.error(error);
+    if (error) {
+        console.error('Gagal memuat persediaan:', error);
+        document.getElementById('inventory-table').innerHTML = '<tr><td colspan="4">Gagal memuat data persediaan.</td></tr>';
+        document.getElementById('stocktake-table').innerHTML = '<tr><td colspan="4">Gagal memuat data persediaan.</td></tr>';
+        alert(`Gagal memuat persediaan: ${error.message}`);
+        return;
+    }
 
     let totalAssetRupiah = 0;
     const tableBody = document.getElementById('inventory-table');
     const selectIngredient = document.getElementById('ingredient_id');
     const filterSelect = document.getElementById('filter-ingredient');
+    const foodWasteIngredientSelect = document.getElementById('food-waste-ingredient');
+    const stocktakeBody = document.getElementById('stocktake-table');
+    const expiryAlertContainer = document.getElementById('expiry-alert-container');
+    const expiryAlertList = document.getElementById('expiry-alert-list');
     
     let chartLabels = [];
     let chartData = [];
@@ -270,6 +293,8 @@ async function loadInventory() {
     let hasAlerts = false;
     
     tableBody.innerHTML = '';
+    foodWasteIngredientSelect.innerHTML = '<option value="">-- Pilih Bahan Baku --</option>';
+    stocktakeBody.innerHTML = '';
     selectIngredient.innerHTML = '<option value="">-- Pilih Bahan Baku --</option>';
     filterSelect.innerHTML = '<option value="">Semua Bahan (Jurnal Umum)</option>';
 
@@ -286,25 +311,77 @@ async function loadInventory() {
         const isCritical = Number(item.stock_qty) <= Number(item.min_stock);
         if (isCritical) {
             hasAlerts = true;
-            alertList.innerHTML += `<li>Stok <b>${item.name}</b> tersisa ${item.stock_qty} ${item.unit}. Segera Restock!</li>`;
+            alertList.innerHTML += `<li>Stok <b>${escapeHtml(item.name)}</b> tersisa ${item.stock_qty} ${escapeHtml(item.unit)}. Segera Restock!</li>`;
         }
         const qtyStyle = isCritical ? 'class="text-danger"' : '';
 
         tableBody.innerHTML += `
             <tr>
-                <td><b>${item.name}</b></td>
+                <td><b>${escapeHtml(item.name)}</b></td>
                 <td ${qtyStyle}>${item.stock_qty} ${item.unit}</td>
                 <td>${item.min_stock} ${item.unit}</td>
                 <td><b>Rp ${formatRp(totalValue)}</b></td>
             </tr>
         `;
         
-        selectIngredient.innerHTML += `<option value="${item.id}" data-price="${item.unit_price}">${item.name} (Sisa: ${item.stock_qty})</option>`;
-        filterSelect.innerHTML += `<option value="${item.id}">Buku Besar: ${item.name}</option>`;
+        const safeName = escapeHtml(item.name);
+        const safeUnit = escapeHtml(item.unit);
+        selectIngredient.innerHTML += `<option value="${item.id}" data-price="${item.unit_price}">${safeName} (Sisa: ${item.stock_qty})</option>`;
+        foodWasteIngredientSelect.innerHTML += `<option value="${item.id}" data-stock="${item.stock_qty}" data-unit="${safeUnit}">${safeName} (${item.stock_qty} ${safeUnit})</option>`;
+        filterSelect.innerHTML += `<option value="${item.id}">Buku Besar: ${safeName}</option>`;
+        stocktakeBody.innerHTML += `
+            <tr>
+                <td>${safeName}</td>
+                <td>${item.stock_qty} ${safeUnit}</td>
+                <td>
+                    <input type="number" min="0" step="0.01" required
+                        class="stocktake-physical-qty"
+                        data-ingredient-id="${item.id}"
+                        data-system-qty="${item.stock_qty}"
+                        data-unit="${safeUnit}"
+                        value="${item.stock_qty}"
+                        aria-label="Jumlah fisik ${safeName}">
+                </td>
+                <td class="stocktake-variance">0 ${safeUnit}</td>
+            </tr>
+        `;
     });
 
     document.getElementById('total-asset-value').innerText = `Rp ${formatRp(totalAssetRupiah)}`;
     if (hasAlerts) alertContainer.classList.remove('hidden'); else alertContainer.classList.add('hidden');
+
+    const warningDate = new Date();
+    warningDate.setDate(warningDate.getDate() + 3);
+    const warningDateValue = localDateValue(warningDate);
+    const { data: expiringBatches, error: expiryError } = await supabaseClient
+        .from('inventory_batches')
+        .select('id, batch_number, expiry_date, quantity_remaining, ingredients(name, unit)')
+        .gt('quantity_remaining', 0)
+        .lte('expiry_date', warningDateValue)
+        .order('expiry_date');
+    if (expiryError) {
+        console.error('Gagal memuat peringatan batch kedaluwarsa:', expiryError);
+        expiryAlertList.innerHTML = '<li>Gagal memuat data batch kedaluwarsa.</li>';
+        expiryAlertContainer.classList.remove('hidden');
+        alert(`Gagal memuat peringatan kedaluwarsa: ${expiryError.message}`);
+    } else if (expiringBatches && expiringBatches.length > 0) {
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        expiryAlertList.innerHTML = expiringBatches.map(batch => {
+            const expiryDate = new Date(`${batch.expiry_date}T00:00:00`);
+            const daysUntilExpiry = Math.round((expiryDate - today) / 86400000);
+            const status = daysUntilExpiry < 0
+                ? 'SUDAH KEDALUWARSA'
+                : daysUntilExpiry === 0
+                    ? 'KEDALUWARSA HARI INI'
+                    : `Kedaluwarsa H-${daysUntilExpiry}`;
+            return `<li><span class="badge badge-out">${status}</span> <b>${escapeHtml(batch.ingredients.name)}</b> — Batch ${escapeHtml(batch.batch_number)}, sisa ${batch.quantity_remaining} ${escapeHtml(batch.ingredients.unit)}, tanggal ${expiryDate.toLocaleDateString('id-ID')}</li>`;
+        }).join('');
+        expiryAlertContainer.classList.remove('hidden');
+    } else {
+        expiryAlertList.innerHTML = '';
+        expiryAlertContainer.classList.add('hidden');
+    }
     
     // Panggil fungsi render chart
     renderChart(chartLabels, chartData);
@@ -312,7 +389,7 @@ async function loadInventory() {
 
 async function loadJournalAndAnalysis(filterIngredientId = '') {
     let query = supabaseClient.from('inventory_logs')
-        .select('*, ingredients(name), suppliers(name), menu_items(name)')
+        .select('*, ingredients(name), suppliers(name), menu_items(name), inventory_batch_consumptions(quantity, unit_cost, inventory_batches(batch_number, expiry_date))')
         .order('created_at', { ascending: false });
 
     if (filterIngredientId !== '') query = query.eq('ingredient_id', filterIngredientId);
@@ -328,23 +405,36 @@ async function loadJournalAndAnalysis(filterIngredientId = '') {
     logs.forEach(log => {
         const logDateObj = new Date(log.created_at);
         const dateStr = logDateObj.toLocaleDateString('id-ID');
-        const totalVal = log.qty * log.unit_price_at_time;
+        const totalVal = inventoryLogCost(log);
         
         const supplierName = log.suppliers ? `dari ${log.suppliers.name}` : '';
         const menuName = log.menu_items ? `untuk ${log.menu_items.name}` : '';
         
         // Pembuatan Baris Tabel dengan Badge Visual
-        if (log.type === 'IN') {
+        if (log.movement_reason === 'STOCKTAKE_GAIN') {
+            journalBody.innerHTML += `
+                <tr>
+                    <td>${dateStr}</td>
+                    <td><span class="badge badge-in">ADJUSTMENT</span></td>
+                    <td><b>Persediaan Bahan Baku</b> - Selisih lebih stok opname: ${escapeHtml(log.ingredients.name)}<br><div class="acc-kredit">Keuntungan Penyesuaian Persediaan</div></td>
+                    <td>Rp ${formatRp(totalVal)}<br>-</td>
+                    <td>-<br>Rp ${formatRp(totalVal)}</td>
+                </tr>
+            `;
+        } else if (log.type === 'IN') {
             const paymentAccount = log.payment_method === 'CREDIT'
                 ? 'Utang Dagang'
                 : log.payment_method === 'CASH'
                     ? 'Kas'
                     : 'Kas / Utang Dagang (pembayaran belum diketahui)';
+            const batchDetails = log.batch_number
+                ? `<br>Batch ${escapeHtml(log.batch_number)}${log.expiry_date ? ` — Kedaluwarsa ${new Date(`${log.expiry_date}T00:00:00`).toLocaleDateString('id-ID')}` : ''}, biaya/unit Rp ${formatRp(log.unit_cost ?? log.unit_price_at_time)}`
+                : '';
             journalBody.innerHTML += `
                 <tr>
                     <td>${dateStr}</td>
                     <td><span class="badge badge-in">IN</span></td>
-                    <td><b>Persediaan (${log.ingredients.name})</b> - Masuk ${log.qty} ${supplierName}<br><div class="acc-kredit">${paymentAccount}</div></td>
+                    <td><b>Persediaan (${escapeHtml(log.ingredients.name)})</b> - Masuk ${log.qty} ${supplierName}${batchDetails}<br><div class="acc-kredit">${paymentAccount}</div></td>
                     <td>Rp ${formatRp(totalVal)}<br>-</td>
                     <td>-<br>Rp ${formatRp(totalVal)}</td>
                 </tr>
@@ -354,17 +444,39 @@ async function loadJournalAndAnalysis(filterIngredientId = '') {
                 <tr>
                     <td>${dateStr}</td>
                     <td><span class="badge badge-out">RUSAK</span></td>
-                    <td><b>Kerugian Persediaan Basi</b> - ${escapeHtml(log.notes || 'Barang basi / kedaluwarsa')}<br><div class="acc-kredit">Persediaan (${escapeHtml(log.ingredients.name)})</div></td>
+                    <td><b>Beban Kerusakan Persediaan</b> - ${escapeHtml(log.notes || 'Barang basi / kedaluwarsa')}<br><div class="acc-kredit">Persediaan (${escapeHtml(log.ingredients.name)})</div></td>
+                    <td>Rp ${formatRp(totalVal)}<br>-</td>
+                    <td>-<br>Rp ${formatRp(totalVal)}</td>
+                </tr>
+            `;
+        } else if (log.movement_reason?.startsWith('FOOD_WASTE_') || log.movement_reason === 'STOCKTAKE_LOSS') {
+            const reasonLabels = {
+                FOOD_WASTE_EXPIRED: 'Kedaluwarsa',
+                FOOD_WASTE_DROPPED: 'Jatuh',
+                FOOD_WASTE_DOUGH_FAILED: 'Adonan gagal',
+                STOCKTAKE_LOSS: 'Selisih kurang stok opname'
+            };
+            const description = reasonLabels[log.movement_reason] || 'Kerusakan persediaan';
+            journalBody.innerHTML += `
+                <tr>
+                    <td>${dateStr}</td>
+                    <td><span class="badge badge-out">${log.movement_reason === 'STOCKTAKE_LOSS' ? 'ADJUSTMENT' : 'FOOD WASTE'}</span></td>
+                    <td><b>Beban Kerusakan Persediaan (Food Loss Expense)</b> - ${description}: ${escapeHtml(log.ingredients.name)}<br><div class="acc-kredit">Persediaan Bahan Baku</div></td>
                     <td>Rp ${formatRp(totalVal)}<br>-</td>
                     <td>-<br>Rp ${formatRp(totalVal)}</td>
                 </tr>
             `;
         } else {
+            const consumedBatches = (log.inventory_batch_consumptions || [])
+                .map(consumption =>
+                    `${escapeHtml(consumption.inventory_batches.batch_number)} (${consumption.quantity} @ Rp ${formatRp(consumption.unit_cost)})`
+                )
+                .join(', ');
             journalBody.innerHTML += `
                 <tr>
                     <td>${dateStr}</td>
                     <td><span class="badge badge-out">OUT</span></td>
-                    <td><b>HPP (Beban Pokok)</b> - Dipakai ${log.qty} ${menuName}<br><div class="acc-kredit">Persediaan (${log.ingredients.name})</div></td>
+                    <td><b>HPP (Beban Pokok)</b> - Dipakai ${log.qty} ${menuName}${consumedBatches ? `<br>Batch FIFO: ${consumedBatches}` : ''}<br><div class="acc-kredit">Persediaan (${escapeHtml(log.ingredients.name)})</div></td>
                     <td>Rp ${formatRp(totalVal)}<br>-</td>
                     <td>-<br>Rp ${formatRp(totalVal)}</td>
                 </tr>
@@ -379,6 +491,105 @@ async function loadJournalAndAnalysis(filterIngredientId = '') {
 function applyLedgerFilter() {
     loadJournalAndAnalysis(document.getElementById('filter-ingredient').value);
 }
+
+document.getElementById('food-waste-ingredient').addEventListener('change', (event) => {
+    const select = event.currentTarget;
+    const selectedOption = select.options[select.selectedIndex];
+    const quantityInput = document.getElementById('food-waste-quantity');
+    quantityInput.max = selectedOption.dataset.stock || '';
+    quantityInput.placeholder = selectedOption.dataset.unit
+        ? `Maksimal ${selectedOption.dataset.stock} ${selectedOption.dataset.unit}`
+        : '';
+});
+
+document.getElementById('food-waste-form').addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const ingredientId = Number(document.getElementById('food-waste-ingredient').value);
+    const quantity = Number(document.getElementById('food-waste-quantity').value);
+    const reason = document.getElementById('food-waste-reason').value;
+    const button = form.querySelector('button[type="submit"]');
+    if (!ingredientId || !Number.isFinite(quantity) || quantity <= 0 || !reason) {
+        alert('Pilih bahan, jumlah rusak, dan alasan food waste yang valid.');
+        return;
+    }
+
+    button.disabled = true;
+    try {
+        const { error } = await supabaseClient.rpc('record_food_waste', {
+            p_ingredient_id: ingredientId,
+            p_qty: quantity,
+            p_reason: reason
+        });
+        if (error) throw error;
+        form.reset();
+        document.getElementById('food-waste-quantity').removeAttribute('max');
+        document.getElementById('food-waste-quantity').placeholder = '';
+        await Promise.all([
+            loadInventory(),
+            loadJournalAndAnalysis(document.getElementById('filter-ingredient').value),
+            loadFinancialReport()
+        ]);
+        alert('Food waste berhasil dicatat dan jurnal beban kerusakan persediaan telah dibuat.');
+    } catch (error) {
+        console.error('Gagal mencatat food waste:', error);
+        alert(`Food waste gagal dicatat: ${error.message}`);
+    } finally {
+        button.disabled = false;
+    }
+});
+
+document.getElementById('stocktake-table').addEventListener('input', (event) => {
+    if (!event.target.matches('.stocktake-physical-qty')) return;
+    const input = event.target;
+    const systemQty = Number(input.dataset.systemQty);
+    const physicalQty = Number(input.value);
+    const varianceCell = input.closest('tr').querySelector('.stocktake-variance');
+    const variance = physicalQty - systemQty;
+    varianceCell.textContent = `${variance > 0 ? '+' : ''}${Number.isFinite(variance) ? formatRp(variance).replace(/\.00$/, '') : '-'} ${input.dataset.unit}`;
+    varianceCell.classList.toggle('text-danger', variance < 0);
+});
+
+document.getElementById('stocktake-refresh').addEventListener('click', loadInventory);
+
+document.getElementById('stocktake-form').addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const inputs = [...form.querySelectorAll('.stocktake-physical-qty')];
+    if (inputs.length === 0 || inputs.some(input => !input.reportValidity())) return;
+
+    const counts = inputs.map(input => ({
+        ingredient_id: Number(input.dataset.ingredientId),
+        expected_stock_qty: Number(input.dataset.systemQty),
+        physical_qty: Number(input.value)
+    }));
+    const changedCount = counts.filter(count => count.physical_qty !== count.expected_stock_qty).length;
+    if (changedCount === 0) {
+        alert('Tidak ada selisih stok yang perlu disesuaikan.');
+        return;
+    }
+    if (!window.confirm(`Simpan stok opname? ${changedCount} bahan memiliki selisih dan stok sistem akan disesuaikan.`)) return;
+
+    const button = document.getElementById('stocktake-submit');
+    button.disabled = true;
+    try {
+        const { data: adjustmentCount, error } = await supabaseClient.rpc('record_stocktake', {
+            p_counts: counts
+        });
+        if (error) throw error;
+        await Promise.all([
+            loadInventory(),
+            loadJournalAndAnalysis(document.getElementById('filter-ingredient').value),
+            loadFinancialReport()
+        ]);
+        alert(`Stok opname berhasil disimpan. ${adjustmentCount} penyesuaian jurnal dibuat.`);
+    } catch (error) {
+        console.error('Gagal menyimpan stok opname:', error);
+        alert(`Stok opname gagal disimpan: ${error.message}`);
+    } finally {
+        button.disabled = false;
+    }
+});
 
 document.getElementById('transaction-form').addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -398,6 +609,15 @@ document.getElementById('transaction-form').addEventListener('submit', async (e)
 
     if (!ingredientId || !Number.isFinite(qty) || qty <= 0) return alert("Pilih bahan dan masukkan kuantitas yang valid!");
     if (type === 'IN' && !supplierId) return alert("Pilih Supplier terlebih dahulu!");
+    const batchNumber = type === 'IN'
+        ? document.getElementById('inventory-batch-number').value.trim()
+        : null;
+    const expiryDate = type === 'IN'
+        ? document.getElementById('inventory-expiry-date').value
+        : null;
+    if (type === 'IN' && (!batchNumber || !expiryDate)) {
+        return alert('Nomor batch dan tanggal kedaluwarsa wajib diisi untuk stok masuk.');
+    }
     if (type === 'OUT' && !reason) return alert("Masukkan alasan persediaan basi atau kedaluwarsa!");
 
     const button = document.querySelector('#transaction-form button[type="submit"]');
@@ -411,7 +631,9 @@ document.getElementById('transaction-form').addEventListener('submit', async (e)
             p_supplier_id: type === 'IN' && supplierId ? Number(supplierId) : null,
             p_menu_item_id: null,
             p_payment_method: paymentMethod,
-            p_reason: reason
+            p_reason: reason,
+            p_batch_number: batchNumber,
+            p_expiry_date: expiryDate
         });
         if (error) throw error;
 
@@ -432,6 +654,8 @@ document.getElementById('transaction-form').addEventListener('submit', async (e)
         button.disabled = false;
     }
 });
+
+toggleDynamicFields();
 
 document.getElementById('ingredient_id').addEventListener('change', (event) => {
     loadIngredientSuppliers();
@@ -638,13 +862,23 @@ async function loadFinancialReport() {
                 .select('id, total_amount, payment_method, platform_fee, created_at')
                 .gte('created_at', start).lt('created_at', end).order('created_at'),
             () => supabaseClient.from('inventory_logs')
-                .select('id, created_at, qty, unit_price_at_time, menu_item_id, notes, ingredients(name)')
+                .select('id, created_at, qty, unit_price_at_time, menu_item_id, notes, ingredients(name), inventory_batch_consumptions(quantity, unit_cost)')
                 .eq('type', 'OUT').is('movement_reason', null)
                 .gte('created_at', start).lt('created_at', end).order('created_at'),
             () => supabaseClient.from('inventory_logs')
-                .select('id, created_at, qty, unit_price_at_time, notes')
-                .eq('type', 'OUT').eq('movement_reason', 'SPOILED')
+                .select('id, created_at, qty, unit_price_at_time, notes, inventory_batch_consumptions(quantity, unit_cost)')
+                .eq('type', 'OUT').in('movement_reason', [
+                    'SPOILED',
+                    'FOOD_WASTE_EXPIRED',
+                    'FOOD_WASTE_DROPPED',
+                    'FOOD_WASTE_DOUGH_FAILED',
+                    'STOCKTAKE_LOSS'
+                ])
                 .gte('created_at', start).lt('created_at', end).order('created_at'),
+            () => supabaseClient.from('inventory_logs')
+                .select('id, qty, unit_price_at_time')
+                .eq('type', 'IN').eq('movement_reason', 'STOCKTAKE_GAIN')
+                .gte('created_at', start).lt('created_at', end),
             () => supabaseClient.from('operating_expenses')
                 .select('id, description, category, amount, payment_method, created_at, paid_at')
                 .gte('created_at', start).lt('created_at', end).order('created_at'),
@@ -663,12 +897,13 @@ async function loadFinancialReport() {
             () => supabaseClient.from('inventory_logs')
                 .select('id, qty, unit_price_at_time')
                 .eq('type', 'IN').is('payment_method', null)
+                .is('movement_reason', null)
                 .gte('created_at', start).lt('created_at', end)
         ];
-        const [salesResult, cogsResult, spoiledResult, expensesResult, purchasesPaidResult,
+        const [salesResult, cogsResult, spoiledResult, stocktakeGainsResult, expensesResult, purchasesPaidResult,
             expensesPaidResult, unpaidPurchasesResult, unpaidExpensesResult,
             unknownPurchasesResult] = await Promise.all(queryFactories.map(fetchAllReportRows));
-        const results = [salesResult, cogsResult, spoiledResult, expensesResult, purchasesPaidResult,
+        const results = [salesResult, cogsResult, spoiledResult, stocktakeGainsResult, expensesResult, purchasesPaidResult,
             expensesPaidResult, unpaidPurchasesResult, unpaidExpensesResult, unknownPurchasesResult];
         const failedResult = results.find(result => result.error);
         if (failedResult) throw failedResult.error;
@@ -676,6 +911,7 @@ async function loadFinancialReport() {
         const sales = salesResult.data || [];
         const cogsLogs = cogsResult.data || [];
         const spoiledLogs = spoiledResult.data || [];
+        const stocktakeGains = stocktakeGainsResult.data || [];
         const expenses = expensesResult.data || [];
         const paidPurchases = purchasesPaidResult.data || [];
         const paidExpenses = expensesPaidResult.data || [];
@@ -689,11 +925,13 @@ async function loadFinancialReport() {
             sum + (['GOFOOD', 'GRABFOOD'].includes(sale.payment_method)
                 ? Number(sale.total_amount) - Number(sale.platform_fee)
                 : 0), 0);
-        const cogs = cogsLogs.reduce((sum, log) => sum + Number(log.qty) * Number(log.unit_price_at_time), 0);
-        const spoilageLoss = spoiledLogs.reduce((sum, log) => sum + Number(log.qty) * Number(log.unit_price_at_time), 0);
+        const cogs = cogsLogs.reduce((sum, log) => sum + inventoryLogCost(log), 0);
+        const spoilageLoss = spoiledLogs.reduce((sum, log) => sum + inventoryLogCost(log), 0);
         const grossProfit = revenue - cogs;
+        const stocktakeGainTotal = stocktakeGains.reduce((sum, log) =>
+            sum + Number(log.qty) * Number(log.unit_price_at_time), 0);
         const expenseTotal = expenses.reduce((sum, expense) => sum + Number(expense.amount), 0);
-        const netProfit = grossProfit - expenseTotal - spoilageLoss - platformFeeTotal;
+        const netProfit = grossProfit - expenseTotal - spoilageLoss - platformFeeTotal + stocktakeGainTotal;
         const cashIn = sales.reduce((sum, sale) =>
             sum + (['CASH', 'QRIS'].includes(sale.payment_method) ? Number(sale.total_amount) : 0), 0);
         const purchaseCashOut = paidPurchases.reduce((sum, log) =>
@@ -728,7 +966,8 @@ async function loadFinancialReport() {
             <tr><td>Beban Komisi GoFood / GrabFood</td><td class="report-amount">Rp ${formatRp(platformFeeTotal)}</td></tr>
             <tr><th colspan="2">Biaya Operasional</th></tr>
             ${expenseRows || '<tr><td colspan="2">Belum ada biaya operasional pada periode ini.</td></tr>'}
-            <tr><td>Kerugian Persediaan Basi / Kedaluwarsa</td><td class="report-amount">Rp ${formatRp(spoilageLoss)}</td></tr>
+            <tr><td>Beban Kerusakan Persediaan & Selisih Kurang (Food Loss)</td><td class="report-amount">Rp ${formatRp(spoilageLoss)}</td></tr>
+            <tr><td>Keuntungan Penyesuaian Stok (Selisih Lebih)</td><td class="report-amount">Rp ${formatRp(stocktakeGainTotal)}</td></tr>
             <tr class="report-total"><th>Laba / (Rugi) Bersih</th><td class="report-amount">Rp ${formatRp(netProfit)}</td></tr>
         `;
 

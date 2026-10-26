@@ -104,8 +104,7 @@ begin
         into v_purchase_unit_price
         from supplier_ingredients as catalog
         where catalog.ingredient_id = p_ingredient_id
-          and catalog.supplier_id = p_supplier_id
-        for share;
+          and catalog.supplier_id = p_supplier_id;
         if not found then
             raise exception 'Supplier tersebut tidak terdaftar untuk bahan baku ini.';
         end if;
