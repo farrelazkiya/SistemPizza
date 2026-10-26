@@ -25,6 +25,11 @@ let inventorySnapshot = null;
 let expiringBatchSnapshot = [];
 let executiveDashboardRequest = 0;
 let accountingJournalEntries = [];
+let financialTrendChart = null;
+let financialExpenseChart = null;
+let currentFinancialReport = null;
+let financialReportRequest = 0;
+let activeReportTab = 'profit-loss';
 
 const ACCOUNTING_ACCOUNTS = {
     cash: 'Kas',
@@ -100,6 +105,11 @@ function switchPage(pageId, element) {
     document.querySelectorAll('.sidebar-menu li').forEach(li => li.classList.remove('active'));
     element.classList.add('active');
     document.getElementById('current-page-title').textContent = activePage.querySelector('h1')?.textContent || 'Workspace';
+    if (pageId === 'page-laporan' && ['journal', 'ledger'].includes(activeReportTab)) {
+        switchFinancialReportTab('profit-loss', false);
+    } else if (pageId === 'page-jurnal' && !['journal', 'ledger'].includes(activeReportTab)) {
+        switchFinancialReportTab('journal', false);
+    }
     if (pageId === 'page-laporan') loadMenuEngineering();
     if (pageId === 'page-jurnal') {
         loadAccountingJournal();
@@ -589,6 +599,7 @@ function renderAccountingJournal() {
     const startValue = document.getElementById('accounting-start-date').value;
     const endValue = document.getElementById('accounting-end-date').value;
     const accountFilter = document.getElementById('accounting-account-filter').value;
+    const searchValue = document.getElementById('accounting-journal-search').value.trim().toLocaleLowerCase('id');
     if (startValue && endValue && startValue > endValue) throw new Error('Rentang tanggal jurnal tidak valid.');
     const start = startValue ? new Date(`${startValue}T00:00:00`).getTime() : -Infinity;
     let end = Infinity;
@@ -600,7 +611,9 @@ function renderAccountingJournal() {
         const time = new Date(entry.date).getTime();
         return time >= start && time < end;
     });
-    const filtered = periodEntries.filter(entry => !accountFilter || entry.account === accountFilter);
+    const filtered = periodEntries.filter(entry =>
+        (!accountFilter || entry.account === accountFilter) &&
+        (!searchValue || `${entry.reference} ${entry.description} ${entry.account}`.toLocaleLowerCase('id').includes(searchValue)));
     const runningByAccount = new Map();
     const runningByEntry = new Map();
     [...accountingJournalEntries].reverse().forEach(entry => {
@@ -611,6 +624,8 @@ function renderAccountingJournal() {
     document.getElementById('accounting-period-label').textContent = startValue || endValue
         ? `${startValue ? new Date(`${startValue}T00:00:00`).toLocaleDateString('id-ID') : 'Awal data'} – ${endValue ? new Date(`${endValue}T00:00:00`).toLocaleDateString('id-ID') : 'Akhir data'}`
         : 'Semua transaksi yang tercatat';
+    document.getElementById('accounting-trial-period-label').textContent =
+        document.getElementById('accounting-period-label').textContent;
     body.innerHTML = filtered.length ? filtered.map(entry => `
         <tr>
             <td>${new Date(entry.date).toLocaleString('id-ID')}</td>
@@ -703,9 +718,11 @@ function exportAccountingJournal() {
         const [year, month, day] = endValue.split('-').map(Number);
         end = new Date(year, month - 1, day + 1).getTime();
     }
+    const searchValue = document.getElementById('accounting-journal-search').value.trim().toLocaleLowerCase('id');
     const rows = accountingJournalEntries.filter(entry => {
         const time = new Date(entry.date).getTime();
-        return time >= start && time < end && (!accountFilter || entry.account === accountFilter);
+        return time >= start && time < end && (!accountFilter || entry.account === accountFilter) &&
+            (!searchValue || `${entry.reference} ${entry.description} ${entry.account}`.toLocaleLowerCase('id').includes(searchValue));
     });
     const csvValue = value => {
         const text = String(value);
@@ -713,7 +730,9 @@ function exportAccountingJournal() {
         return `"${safeText.replace(/"/g, '""')}"`;
     };
     const csv = [
-        ['Tanggal', 'Referensi', 'Keterangan', 'Akun', 'Debit', 'Kredit'],
+        ['Pizza Craft — Jurnal Umum', document.getElementById('accounting-period-label').textContent, 'Mata uang: Rupiah'],
+        [],
+        ['Tanggal', 'Referensi', 'Keterangan', 'Akun', 'Debit (Rp)', 'Kredit (Rp)'],
         ...rows.map(entry => [
             new Date(entry.date).toLocaleString('id-ID'),
             entry.reference,
@@ -1986,6 +2005,43 @@ function localDateValue(date) {
     return `${year}-${month}-${day}`;
 }
 
+function setReportPeriodOptions() {
+    const today = new Date();
+    const monthNames = Array.from({ length: 12 }, (_, month) =>
+        new Intl.DateTimeFormat('id-ID', { month: 'long' }).format(new Date(2020, month, 1)));
+    const monthOptions = monthNames.map((name, month) =>
+        `<option value="${month}">${name}</option>`).join('');
+    const yearOptions = Array.from({ length: 8 }, (_, index) => today.getFullYear() - 5 + index)
+        .map(year => `<option value="${year}">${year}</option>`).join('');
+    ['report-month', 'accounting-month'].forEach(id => {
+        document.getElementById(id).innerHTML = monthOptions;
+        document.getElementById(id).value = String(today.getMonth());
+    });
+    ['report-year', 'accounting-year'].forEach(id => {
+        document.getElementById(id).innerHTML = yearOptions;
+        document.getElementById(id).value = String(today.getFullYear());
+    });
+}
+
+function applyReportMonthToDates() {
+    const year = Number(document.getElementById('report-year').value);
+    const month = Number(document.getElementById('report-month').value);
+    const start = new Date(year, month, 1);
+    const today = new Date();
+    const end = month === today.getMonth() && year === today.getFullYear()
+        ? today
+        : new Date(year, month + 1, 0);
+    document.getElementById('report-start-date').value = localDateValue(start);
+    document.getElementById('report-end-date').value = localDateValue(end);
+    updateReportDateMode();
+}
+
+function updateReportDateMode() {
+    const isCustom = document.getElementById('report-range-mode').value === 'custom';
+    document.getElementById('report-start-date').closest('.form-group').hidden = !isCustom;
+    document.getElementById('report-end-date').closest('.form-group').hidden = !isCustom;
+}
+
 function reportDateBounds() {
     const startValue = document.getElementById('report-start-date').value;
     const endValue = document.getElementById('report-end-date').value;
@@ -1998,6 +2054,53 @@ function reportDateBounds() {
     const start = new Date(startYear, startMonth - 1, startDay);
     const endExclusive = new Date(endYear, endMonth - 1, endDay + 1);
     return { start: start.toISOString(), end: endExclusive.toISOString() };
+}
+
+function reportPeriodLabel() {
+    const start = document.getElementById('report-start-date').value;
+    const end = document.getElementById('report-end-date').value;
+    const format = value => new Intl.DateTimeFormat('id-ID', {
+        day: '2-digit', month: 'long', year: 'numeric'
+    }).format(new Date(`${value}T00:00:00`));
+    return `${format(start)} – ${format(end)}`;
+}
+
+function applyAccountingPeriodFilter() {
+    const start = document.getElementById('report-start-date').value;
+    const end = document.getElementById('report-end-date').value;
+    document.getElementById('accounting-start-date').value = start;
+    document.getElementById('accounting-end-date').value = end;
+}
+
+function switchFinancialReportTab(tab, navigate = true) {
+    activeReportTab = tab;
+    document.querySelectorAll('[data-report-tab]').forEach(button => {
+        button.classList.toggle('is-active', button.dataset.reportTab === tab);
+        button.setAttribute('aria-current', button.dataset.reportTab === tab ? 'page' : 'false');
+    });
+    const isJournalPage = ['journal', 'ledger'].includes(tab);
+    const pageId = isJournalPage ? 'page-jurnal' : 'page-laporan';
+    const pageLink = document.querySelector(`.sidebar-menu li[onclick*="${pageId}"]`);
+    if (navigate && pageLink && !document.getElementById(pageId).classList.contains('active')) switchPage(pageId, pageLink);
+    document.querySelectorAll('.report-profit-loss-panel, .report-summary-panel, .report-visualization-panel, .menu-engineering-analysis-panel, .report-cash-flow-panel, .report-transaction-panel, .accounting-ledger-panel, .accounting-journal-panel, .accounting-inventory-ledger-panel, .accounting-sales-summary-panel').forEach(panel => {
+        let visible = false;
+        if (tab === 'profit-loss') visible = panel.matches('.report-summary-panel, .report-visualization-panel, .menu-engineering-analysis-panel, .report-profit-loss-panel');
+        if (tab === 'cash-flow') visible = panel.matches('.report-cash-flow-panel');
+        if (tab === 'transactions') visible = panel.matches('.report-transaction-panel');
+        if (tab === 'journal') visible = panel.matches('.accounting-journal-panel');
+        if (tab === 'ledger') visible = panel.matches('.accounting-ledger-panel, .accounting-journal-panel');
+        panel.hidden = !visible;
+    });
+}
+
+function navigateToJournalReference(reference) {
+    const search = document.getElementById('accounting-journal-search');
+    search.value = reference;
+    document.getElementById('accounting-account-filter').value = '';
+    switchFinancialReportTab('journal');
+    applyAccountingPeriodFilter();
+    renderAccountingJournal();
+    document.getElementById('accounting-journal-table').closest('.report-card')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
 function reportStatus(paymentMethod, paidAt) {
@@ -2417,26 +2520,127 @@ function renderExecutiveDoughnut(canvasId, emptyId, entries, label) {
     });
 }
 
+function renderFinancialReportCharts(sales, cogsLogs, expenses) {
+    if (financialTrendChart) financialTrendChart.destroy();
+    if (financialExpenseChart) financialExpenseChart.destroy();
+    const daily = new Map();
+    const dateKey = date => localDateValue(new Date(date));
+    sales.forEach(sale => {
+        const key = dateKey(sale.created_at);
+        const row = daily.get(key) || { revenue: 0, cogs: 0 };
+        row.revenue += Number(sale.total_amount);
+        daily.set(key, row);
+    });
+    cogsLogs.forEach(log => {
+        const key = dateKey(log.created_at);
+        const row = daily.get(key) || { revenue: 0, cogs: 0 };
+        row.cogs += inventoryLogCost(log);
+        daily.set(key, row);
+    });
+    const keys = [...daily.keys()].sort();
+    const labels = keys.map(key => new Date(`${key}T00:00:00`).toLocaleDateString('id-ID', { day: '2-digit', month: 'short' }));
+    const revenueData = keys.map(key => daily.get(key).revenue);
+    const cogsData = keys.map(key => daily.get(key).cogs);
+    const profitData = keys.map(key => daily.get(key).revenue - daily.get(key).cogs);
+    const trendCanvas = document.getElementById('financial-trend-chart');
+    const trendEmpty = document.getElementById('financial-trend-empty');
+    trendCanvas.hidden = keys.length === 0;
+    trendEmpty.hidden = keys.length > 0;
+    financialTrendChart = keys.length ? new Chart(trendCanvas.getContext('2d'), {
+        type: 'line',
+        data: { labels, datasets: [
+            { label: 'Penjualan tercatat', data: revenueData, borderColor: '#dc3e34', backgroundColor: 'rgba(220,62,52,.08)', tension: .25, fill: false },
+            { label: 'HPP', data: cogsData, borderColor: '#f59e0b', backgroundColor: 'rgba(245,158,11,.08)', tension: .25, fill: false },
+            { label: 'Laba kotor', data: profitData, borderColor: '#16a34a', backgroundColor: 'rgba(22,163,74,.08)', tension: .25, fill: false }
+        ] },
+        options: {
+            responsive: true, maintainAspectRatio: false,
+            interaction: { mode: 'index', intersect: false },
+            plugins: { tooltip: { callbacks: { label: item => `${item.dataset.label}: Rp ${formatRp(item.raw)}` } } },
+            scales: { y: { ticks: { callback: value => `Rp ${formatRp(value)}` } } }
+        }
+    }) : null;
+    const expenseCategories = new Map();
+    expenses.forEach(expense => expenseCategories.set(
+        expense.category,
+        (expenseCategories.get(expense.category) || 0) + Number(expense.amount)
+    ));
+    const categories = [...expenseCategories.entries()].sort((left, right) => right[1] - left[1]);
+    const expenseCanvas = document.getElementById('financial-expense-chart');
+    const expenseEmpty = document.getElementById('financial-expense-empty');
+    expenseCanvas.hidden = categories.length === 0;
+    expenseEmpty.hidden = categories.length > 0;
+    financialExpenseChart = categories.length ? new Chart(expenseCanvas.getContext('2d'), {
+        type: 'doughnut',
+        data: { labels: categories.map(([category]) => category), datasets: [{
+            label: 'Biaya operasional (Rp)',
+            data: categories.map(([, amount]) => amount),
+            backgroundColor: ['#dc3e34', '#f59e0b', '#475569', '#16a34a', '#6366f1', '#94a3b8'],
+            borderColor: '#fff',
+            borderWidth: 3
+        }] },
+        options: {
+            responsive: true, maintainAspectRatio: false,
+            plugins: {
+                legend: { position: 'bottom' },
+                tooltip: { callbacks: { label: item => `${item.label}: Rp ${formatRp(item.raw)}` } }
+            }
+        }
+    }) : null;
+}
+
 async function loadFinancialReport() {
+    const requestId = ++financialReportRequest;
     const profitLossBody = document.getElementById('profit-loss-table');
     const cashFlowBody = document.getElementById('cash-flow-table');
     const expenseBody = document.getElementById('expense-table');
     const payableBody = document.getElementById('payables-table');
     try {
         const { start, end } = reportDateBounds();
+        const currentStartDate = new Date(start);
+        const currentEndDate = new Date(end);
+        let previousStartDate;
+        let previousEndDate;
+        if (document.getElementById('report-range-mode').value === 'month') {
+            previousStartDate = new Date(currentStartDate.getFullYear(), currentStartDate.getMonth() - 1, 1);
+            const currentMonthEnd = new Date(currentStartDate.getFullYear(), currentStartDate.getMonth() + 1, 1);
+            const isFullMonth = currentEndDate.getTime() === currentMonthEnd.getTime();
+            const previousMonthEndDay = new Date(currentStartDate.getFullYear(), currentStartDate.getMonth(), 0).getDate();
+            previousEndDate = isFullMonth
+                ? currentStartDate
+                : new Date(currentStartDate.getFullYear(), currentStartDate.getMonth() - 1,
+                    Math.min(currentEndDate.getDate(), previousMonthEndDay + 1));
+        } else {
+            previousStartDate = new Date(currentStartDate.getTime() - (currentEndDate.getTime() - currentStartDate.getTime()));
+            previousEndDate = currentStartDate;
+        }
+        const previousStart = previousStartDate.toISOString();
+        const queryStart = document.getElementById('financial-report-compare').checked ? previousStart : start;
+        currentFinancialReport = null;
+        document.getElementById('financial-report-period-label').textContent = 'Memuat laporan...';
+        document.getElementById('report-cash-summary').innerHTML = '<div class="executive-loading"><span class="loading-spinner"></span>Memuat ringkasan kas...</div>';
+        if (financialTrendChart) { financialTrendChart.destroy(); financialTrendChart = null; }
+        if (financialExpenseChart) { financialExpenseChart.destroy(); financialExpenseChart = null; }
+        document.getElementById('financial-trend-chart').hidden = true;
+        document.getElementById('financial-trend-empty').hidden = false;
+        document.getElementById('financial-trend-empty').textContent = 'Memuat tren pendapatan dan laba...';
+        document.getElementById('financial-expense-chart').hidden = true;
+        document.getElementById('financial-expense-empty').hidden = false;
+        document.getElementById('financial-expense-empty').textContent = 'Memuat komposisi biaya...';
         profitLossBody.innerHTML = '<tr><td colspan="2">Memuat laporan...</td></tr>';
-        cashFlowBody.innerHTML = '<tr><td colspan="4">Memuat arus kas...</td></tr>';
+        cashFlowBody.innerHTML = '<tr><td colspan="5">Memuat arus kas...</td></tr>';
         expenseBody.innerHTML = '<tr><td colspan="5">Memuat biaya...</td></tr>';
         payableBody.innerHTML = '<tr><td colspan="5">Memuat utang...</td></tr>';
+        document.getElementById('report-sales-summary').innerHTML = '<tr><td colspan="7">Memuat ringkasan transaksi...</td></tr>';
 
         const queryFactories = [
             () => supabaseClient.from('sales')
                 .select('id, total_amount, payment_method, platform_fee, created_at')
-                .gte('created_at', start).lt('created_at', end).order('created_at'),
+                .gte('created_at', queryStart).lt('created_at', end).order('created_at'),
             () => supabaseClient.from('inventory_logs')
                 .select('id, created_at, qty, unit_price_at_time, menu_item_id, notes, ingredients(name), inventory_batch_consumptions(quantity, unit_cost)')
                 .eq('type', 'OUT').is('movement_reason', null)
-                .gte('created_at', start).lt('created_at', end).order('created_at'),
+                .gte('created_at', queryStart).lt('created_at', end).order('created_at'),
             () => supabaseClient.from('inventory_logs')
                 .select('id, created_at, qty, unit_price_at_time, notes, inventory_batch_consumptions(quantity, unit_cost)')
                 .eq('type', 'OUT').in('movement_reason', [
@@ -2446,20 +2650,20 @@ async function loadFinancialReport() {
                     'FOOD_WASTE_DOUGH_FAILED',
                     'STOCKTAKE_LOSS'
                 ])
-                .gte('created_at', start).lt('created_at', end).order('created_at'),
+                .gte('created_at', queryStart).lt('created_at', end).order('created_at'),
             () => supabaseClient.from('inventory_logs')
-                .select('id, qty, unit_price_at_time')
+                .select('id, qty, unit_price_at_time, created_at')
                 .eq('type', 'IN').eq('movement_reason', 'STOCKTAKE_GAIN')
-                .gte('created_at', start).lt('created_at', end),
+                .gte('created_at', queryStart).lt('created_at', end),
             () => supabaseClient.from('operating_expenses')
                 .select('id, description, category, amount, payment_method, created_at, paid_at')
-                .gte('created_at', start).lt('created_at', end).order('created_at'),
+                .gte('created_at', queryStart).lt('created_at', end).order('created_at'),
             () => supabaseClient.from('inventory_logs')
                 .select('id, qty, unit_price_at_time, paid_at, ingredients(name), suppliers(name)')
-                .eq('type', 'IN').gte('paid_at', start).lt('paid_at', end).order('paid_at'),
+                .eq('type', 'IN').gte('paid_at', queryStart).lt('paid_at', end).order('paid_at'),
             () => supabaseClient.from('operating_expenses')
                 .select('id, description, amount, paid_at')
-                .not('paid_at', 'is', null).gte('paid_at', start).lt('paid_at', end).order('paid_at'),
+                .not('paid_at', 'is', null).gte('paid_at', queryStart).lt('paid_at', end).order('paid_at'),
             () => supabaseClient.from('inventory_logs')
                 .select('id, qty, unit_price_at_time, created_at, notes, ingredients(name), suppliers(name)')
                 .eq('type', 'IN').eq('payment_method', 'CREDIT').is('paid_at', null).order('created_at'),
@@ -2467,29 +2671,50 @@ async function loadFinancialReport() {
                 .select('id, description, category, amount, created_at')
                 .eq('payment_method', 'CREDIT').is('paid_at', null).order('created_at'),
             () => supabaseClient.from('inventory_logs')
-                .select('id, qty, unit_price_at_time')
+                .select('id, qty, unit_price_at_time, created_at')
                 .eq('type', 'IN').is('payment_method', null)
                 .is('movement_reason', null)
-                .gte('created_at', start).lt('created_at', end)
+                .gte('created_at', queryStart).lt('created_at', end)
         ];
         const [salesResult, cogsResult, spoiledResult, stocktakeGainsResult, expensesResult, purchasesPaidResult,
             expensesPaidResult, unpaidPurchasesResult, unpaidExpensesResult,
             unknownPurchasesResult] = await Promise.all(queryFactories.map(fetchAllReportRows));
+        if (requestId !== financialReportRequest) return;
         const results = [salesResult, cogsResult, spoiledResult, stocktakeGainsResult, expensesResult, purchasesPaidResult,
             expensesPaidResult, unpaidPurchasesResult, unpaidExpensesResult, unknownPurchasesResult];
         const failedResult = results.find(result => result.error);
         if (failedResult) throw failedResult.error;
 
-        const sales = salesResult.data || [];
-        const cogsLogs = cogsResult.data || [];
-        const spoiledLogs = spoiledResult.data || [];
-        const stocktakeGains = stocktakeGainsResult.data || [];
-        const expenses = expensesResult.data || [];
-        const paidPurchases = purchasesPaidResult.data || [];
-        const paidExpenses = expensesPaidResult.data || [];
+        const inPeriod = (row, field, lower, upper) => {
+            const time = new Date(row[field]).getTime();
+            return time >= lower.getTime() && time < upper.getTime();
+        };
+        const filterPeriod = (result, field, lower, upper) =>
+            (result.data || []).filter(row => inPeriod(row, field, lower, upper));
+        const sales = filterPeriod(salesResult, 'created_at', currentStartDate, currentEndDate);
+        const cogsLogs = filterPeriod(cogsResult, 'created_at', currentStartDate, currentEndDate);
+        const spoiledLogs = filterPeriod(spoiledResult, 'created_at', currentStartDate, currentEndDate);
+        const stocktakeGains = filterPeriod(stocktakeGainsResult, 'created_at', currentStartDate, currentEndDate);
+        const expenses = filterPeriod(expensesResult, 'created_at', currentStartDate, currentEndDate);
+        const paidPurchases = filterPeriod(purchasesPaidResult, 'paid_at', currentStartDate, currentEndDate);
+        const paidExpenses = filterPeriod(expensesPaidResult, 'paid_at', currentStartDate, currentEndDate);
+        const previousSales = document.getElementById('financial-report-compare').checked
+            ? filterPeriod(salesResult, 'created_at', previousStartDate, previousEndDate) : [];
+        const previousCogsLogs = document.getElementById('financial-report-compare').checked
+            ? filterPeriod(cogsResult, 'created_at', previousStartDate, previousEndDate) : [];
+        const previousExpenses = document.getElementById('financial-report-compare').checked
+            ? filterPeriod(expensesResult, 'created_at', previousStartDate, previousEndDate) : [];
+        const previousSpoiled = document.getElementById('financial-report-compare').checked
+            ? filterPeriod(spoiledResult, 'created_at', previousStartDate, previousEndDate) : [];
+        const previousGains = document.getElementById('financial-report-compare').checked
+            ? filterPeriod(stocktakeGainsResult, 'created_at', previousStartDate, previousEndDate) : [];
+        const previousPaidPurchases = document.getElementById('financial-report-compare').checked
+            ? filterPeriod(purchasesPaidResult, 'paid_at', previousStartDate, previousEndDate) : [];
+        const previousPaidExpenses = document.getElementById('financial-report-compare').checked
+            ? filterPeriod(expensesPaidResult, 'paid_at', previousStartDate, previousEndDate) : [];
         const unpaidPurchases = unpaidPurchasesResult.data || [];
         const unpaidExpenses = unpaidExpensesResult.data || [];
-        const unknownPurchases = unknownPurchasesResult.data || [];
+        const unknownPurchases = filterPeriod(unknownPurchasesResult, 'created_at', currentStartDate, currentEndDate);
 
         const revenue = sales.reduce((sum, sale) => sum + Number(sale.total_amount), 0);
         const platformFeeTotal = sales.reduce((sum, sale) => sum + Number(sale.platform_fee), 0);
@@ -2510,6 +2735,29 @@ async function loadFinancialReport() {
             sum + Number(log.qty) * Number(log.unit_price_at_time), 0);
         const expenseCashOut = paidExpenses.reduce((sum, expense) => sum + Number(expense.amount), 0);
         const cashOut = purchaseCashOut + expenseCashOut;
+        const periodMetrics = (periodSales, periodCogs, periodWaste, periodGains, periodExpenses, periodPurchases, periodPaidExpenses) => {
+            const salesTotal = periodSales.reduce((sum, row) => sum + Number(row.total_amount), 0);
+            const hppTotal = periodCogs.reduce((sum, row) => sum + inventoryLogCost(row), 0);
+            const expenseAmount = periodExpenses.reduce((sum, row) => sum + Number(row.amount), 0);
+            const wasteAmount = periodWaste.reduce((sum, row) => sum + inventoryLogCost(row), 0);
+            const adjustmentGain = periodGains.reduce((sum, row) =>
+                sum + Number(row.qty) * Number(row.unit_price_at_time), 0);
+            const commission = periodSales.reduce((sum, row) => sum + Number(row.platform_fee), 0);
+            const receipts = periodSales.reduce((sum, row) =>
+                sum + (['CASH', 'QRIS'].includes(row.payment_method) ? Number(row.total_amount) : 0), 0);
+            const supplierPayments = periodPurchases.reduce((sum, row) =>
+                sum + Number(row.qty) * Number(row.unit_price_at_time), 0);
+            const operationalPayments = periodPaidExpenses.reduce((sum, row) => sum + Number(row.amount), 0);
+            return {
+                revenue: salesTotal,
+                grossProfit: salesTotal - hppTotal,
+                netProfit: salesTotal - hppTotal - expenseAmount - wasteAmount - commission + adjustmentGain,
+                netCashChange: receipts - supplierPayments - operationalPayments
+            };
+        };
+        const comparisonMetrics = document.getElementById('financial-report-compare').checked
+            ? periodMetrics(previousSales, previousCogsLogs, previousSpoiled, previousGains, previousExpenses, previousPaidPurchases, previousPaidExpenses)
+            : null;
 
         document.getElementById('report-revenue').innerText = `Rp ${formatRp(revenue)}`;
         document.getElementById('report-gross-profit').innerText = `Rp ${formatRp(grossProfit)}`;
@@ -2520,6 +2768,37 @@ async function loadFinancialReport() {
         document.getElementById('report-cash-in').innerText = `Rp ${formatRp(cashIn)}`;
         document.getElementById('report-cash-out').innerText = `Rp ${formatRp(cashOut)}`;
         document.getElementById('report-platform-receivable').innerText = `Rp ${formatRp(platformReceivable)}`;
+        document.getElementById('report-sales-summary').innerHTML = sales.length
+            ? sales.map(sale => {
+                const platformSale = ['GOFOOD', 'GRABFOOD'].includes(sale.payment_method);
+                const settledAmount = platformSale
+                    ? Number(sale.total_amount) - Number(sale.platform_fee)
+                    : ['CASH', 'QRIS'].includes(sale.payment_method) ? Number(sale.total_amount) : null;
+                return `<tr>
+                    <td>${new Date(sale.created_at).toLocaleString('id-ID')}</td>
+                    <td><strong>#${sale.id}</strong></td>
+                    <td>${escapeHtml(paymentMethodLabel(sale.payment_method))}</td>
+                    <td class="report-amount">Rp ${formatRp(sale.total_amount)}</td>
+                    <td class="report-amount">${Number(sale.platform_fee) ? `Rp ${formatRp(sale.platform_fee)}` : '-'}</td>
+                    <td class="report-amount">${settledAmount === null ? 'Tidak diketahui' : `Rp ${formatRp(settledAmount)}`}</td>
+                    <td><button type="button" class="report-source-link" data-report-reference="PJ-${sale.id}">PJ-${sale.id}</button></td>
+                </tr>`;
+            }).join('')
+            : '<tr><td colspan="7" class="empty-state">Tidak ada penjualan pada periode ini.</td></tr>';
+        document.getElementById('financial-report-period-label').textContent =
+            `Periode laporan: ${reportPeriodLabel()}${comparisonMetrics ? ` | Pembanding: ${new Intl.DateTimeFormat('id-ID', { day: '2-digit', month: 'long', year: 'numeric' }).format(previousStartDate)} – ${new Intl.DateTimeFormat('id-ID', { day: '2-digit', month: 'long', year: 'numeric' }).format(new Date(previousEndDate.getTime() - 86400000))}` : ''}`;
+        const comparisonContainer = document.getElementById('financial-report-comparison');
+        comparisonContainer.innerHTML = comparisonMetrics
+            ? [
+                ['Penjualan', revenue, comparisonMetrics.revenue],
+                ['Laba kotor', grossProfit, comparisonMetrics.grossProfit],
+                ['Laba bersih', netProfit, comparisonMetrics.netProfit],
+                ['Perubahan kas tercatat', cashIn - cashOut, comparisonMetrics.netCashChange]
+            ].map(([label, current, previous]) => {
+                const delta = Number(current) - Number(previous);
+                return `<div class="report-comparison-item"><span>${label}</span><strong>Rp ${formatRp(current)}</strong><small>Periode lalu Rp ${formatRp(previous)} · ${delta >= 0 ? '+' : '−'}Rp ${formatRp(Math.abs(delta))}</small></div>`;
+            }).join('')
+            : '<p class="report-note">Perbandingan periode sebelumnya dinonaktifkan.</p>';
 
         const expensesByCategory = new Map();
         expenses.forEach(expense => {
@@ -2528,36 +2807,54 @@ async function loadFinancialReport() {
                 (expensesByCategory.get(expense.category) || 0) + Number(expense.amount)
             );
         });
+        const detailMarkup = (items, reference, description, amount) => items.length
+            ? `<details class="report-detail"><summary>Lihat ${formatRp(items.length)} transaksi sumber</summary><div class="report-detail-scroll"><table><tbody>${items.map(item => `
+                <tr><td>${new Date(item.created_at || item.paid_at).toLocaleDateString('id-ID')}</td><td>${escapeHtml(description(item))}</td><td class="report-amount">Rp ${formatRp(amount(item))}</td><td><button type="button" class="report-source-link" data-report-reference="${escapeHtml(reference(item))}">${escapeHtml(reference(item))}</button></td></tr>
+            `).join('')}</tbody></table></div></details>`
+            : '<small class="report-note">Tidak ada transaksi sumber pada periode ini.</small>';
         const expenseRows = [...expensesByCategory.entries()].sort(([left], [right]) => left.localeCompare(right, 'id'))
-            .map(([category, amount]) => `<tr><td>Biaya ${escapeHtml(category)}</td><td class="report-amount">Rp ${formatRp(amount)}</td></tr>`)
-            .join('');
+            .map(([category, amount]) => {
+                const rows = expenses.filter(expense => expense.category === category);
+                return `<tr><td>Biaya ${escapeHtml(category)}${detailMarkup(rows, row => `BY-${row.id}`, row => row.description, row => Number(row.amount))}</td><td class="report-amount">Rp ${formatRp(amount)}</td></tr>`;
+            }).join('');
+        const cogsTotal = cogsLogs.reduce((sum, log) => sum + inventoryLogCost(log), 0);
+        const expenseSalesBreakdown = detailMarkup(sales, row => `PJ-${row.id}`, row => `Penjualan ${paymentMethodLabel(row.payment_method)} #${row.id}`, row => Number(row.total_amount));
+        const cogsBreakdown = detailMarkup(cogsLogs, row => `ST-${row.id}`, row => `${row.ingredients?.name || 'HPP penjualan'}${row.notes ? ` — ${row.notes}` : ''}`, row => inventoryLogCost(row));
+        const wasteBreakdown = detailMarkup(spoiledLogs, row => `ST-${row.id}`, row => row.notes || 'Food waste / selisih stok', row => inventoryLogCost(row));
+        const gainBreakdown = detailMarkup(stocktakeGains, row => `ST-${row.id}`, row => row.notes || 'Penyesuaian stok selisih lebih', row => Number(row.qty) * Number(row.unit_price_at_time));
         profitLossBody.innerHTML = `
-            <tr><th>Pendapatan penjualan</th><td class="report-amount">Rp ${formatRp(revenue)}</td></tr>
-            <tr><td>(-) Harga Pokok Penjualan (HPP)</td><td class="report-amount">Rp ${formatRp(cogs)}</td></tr>
-            <tr class="report-total"><th>Laba Kotor</th><td class="report-amount">Rp ${formatRp(grossProfit)}</td></tr>
-            <tr><td>Beban Komisi GoFood / GrabFood</td><td class="report-amount">Rp ${formatRp(platformFeeTotal)}</td></tr>
+            <tr><td>Penjualan bruto tercatat${expenseSalesBreakdown}</td><td class="report-amount">Rp ${formatRp(revenue)}</td></tr>
+            <tr><td>Diskon dan retur</td><td class="report-amount">Tidak tersedia — tidak dicatat</td></tr>
+            <tr class="report-subtotal"><th>Penjualan bersih tercatat</th><th class="report-amount">Rp ${formatRp(revenue)}</th></tr>
+            <tr><td>(-) Harga Pokok Penjualan (HPP)${cogsBreakdown}</td><td class="report-amount">Rp ${formatRp(cogsTotal)}</td></tr>
+            <tr class="report-total"><th>Laba Kotor</th><td class="report-amount">Rp ${formatRp(grossProfit)} <small>(${revenue > 0 ? (grossProfit / revenue * 100).toFixed(1) : '—'}%)</small></td></tr>
+            <tr><td>Beban Komisi GoFood / GrabFood${detailMarkup(sales.filter(sale => Number(sale.platform_fee) > 0), row => `PJ-${row.id}`, row => `Komisi penjualan #${row.id}`, row => Number(row.platform_fee))}</td><td class="report-amount">Rp ${formatRp(platformFeeTotal)}</td></tr>
             <tr><th colspan="2">Biaya Operasional</th></tr>
             ${expenseRows || '<tr><td colspan="2">Belum ada biaya operasional pada periode ini.</td></tr>'}
-            <tr><td>Beban Kerusakan Persediaan & Selisih Kurang (Food Loss)</td><td class="report-amount">Rp ${formatRp(spoilageLoss)}</td></tr>
-            <tr><td>Keuntungan Penyesuaian Stok (Selisih Lebih)</td><td class="report-amount">Rp ${formatRp(stocktakeGainTotal)}</td></tr>
-            <tr class="report-total"><th>Laba / (Rugi) Bersih</th><td class="report-amount">Rp ${formatRp(netProfit)}</td></tr>
+            <tr><td>Beban Kerusakan Persediaan & Selisih Kurang (Food Loss)${wasteBreakdown}</td><td class="report-amount">Rp ${formatRp(spoilageLoss)}</td></tr>
+            <tr><td>Keuntungan Penyesuaian Stok (Selisih Lebih)${gainBreakdown}</td><td class="report-amount">Rp ${formatRp(stocktakeGainTotal)}</td></tr>
+            <tr><td>Pendapatan / beban lainnya</td><td class="report-amount">Tidak tersedia — tidak ada sumber data terpisah</td></tr>
+            <tr class="report-total"><th>Laba / (Rugi) Bersih</th><td class="report-amount">Rp ${formatRp(netProfit)} <small>(${revenue > 0 ? (netProfit / revenue * 100).toFixed(1) : '—'}%)</small></td></tr>
         `;
 
         const cashEntries = [
             ...sales.filter(sale => ['CASH', 'QRIS'].includes(sale.payment_method)).map(sale => ({
                 date: sale.created_at,
+                reference: `PJ-${sale.id}`,
                 description: `Penjualan #${sale.id} (${sale.payment_method === 'CASH' ? 'Tunai' : 'QRIS / Bank Transfer'})`,
                 inflow: Number(sale.total_amount),
                 outflow: 0
             })),
             ...paidPurchases.map(purchase => ({
                 date: purchase.paid_at,
+                reference: `ST-${purchase.id}`,
                 description: `Pembelian bahan: ${purchase.ingredients?.name || 'Bahan baku'}${purchase.suppliers?.name ? ` (${purchase.suppliers.name})` : ''}`,
                 inflow: 0,
                 outflow: Number(purchase.qty) * Number(purchase.unit_price_at_time)
             })),
             ...paidExpenses.map(expense => ({
                 date: expense.paid_at,
+                reference: `BYR-BY-${expense.id}`,
                 description: `Biaya: ${expense.description}`,
                 inflow: 0,
                 outflow: Number(expense.amount)
@@ -2570,15 +2867,28 @@ async function loadFinancialReport() {
                     <td>${escapeHtml(entry.description)}</td>
                     <td>${entry.inflow ? `Rp ${formatRp(entry.inflow)}` : '-'}</td>
                     <td>${entry.outflow ? `Rp ${formatRp(entry.outflow)}` : '-'}</td>
+                    <td><button type="button" class="report-source-link" data-report-reference="${escapeHtml(entry.reference)}">${escapeHtml(entry.reference)}</button></td>
                 </tr>
             `).join('')
-            : '<tr><td colspan="4">Belum ada arus kas pada periode ini.</td></tr>';
+            : '<tr><td colspan="5">Belum ada arus kas pada periode ini.</td></tr>';
+        document.getElementById('cash-flow-table').closest('table').querySelector('thead tr').innerHTML =
+            '<th>Tanggal</th><th>Keterangan</th><th>Kas / Bank Masuk</th><th>Pembayaran Keluar</th><th>Sumber</th>';
+        document.getElementById('report-cash-summary').innerHTML = `
+            <div><span>Saldo awal</span><strong>Tidak tersedia</strong><small>Saldo pembuka tidak dicatat</small></div>
+            <div><span>Penerimaan pelanggan tercatat</span><strong>Rp ${formatRp(cashIn)}</strong></div>
+            <div><span>Pembayaran supplier</span><strong>Rp ${formatRp(purchaseCashOut)}</strong></div>
+            <div><span>Pembayaran operasional</span><strong>Rp ${formatRp(expenseCashOut)}</strong></div>
+            <div><span>Arus kas operasi bersih tercatat</span><strong>Rp ${formatRp(cashIn - cashOut)}</strong></div>
+            <div><span>Investasi / pendanaan</span><strong>Tidak tersedia</strong><small>Tidak ada sumber data terpisah</small></div>
+            <div><span>Total perubahan kas tercatat</span><strong>Rp ${formatRp(cashIn - cashOut)}</strong></div>
+            <div><span>Saldo akhir</span><strong>Tidak tersedia</strong><small>Saldo awal & mutasi bank lengkap tidak dicatat</small></div>
+        `;
 
         expenseBody.innerHTML = expenses.length
             ? expenses.map(expense => `
                 <tr>
                     <td>${new Date(expense.created_at).toLocaleDateString('id-ID')}</td>
-                    <td>${escapeHtml(expense.description)}</td>
+                    <td>${escapeHtml(expense.description)} <button type="button" class="report-source-link" data-report-reference="BY-${expense.id}">BY-${expense.id}</button></td>
                     <td>${escapeHtml(expense.category)}</td>
                     <td>Rp ${formatRp(expense.amount)}</td>
                     <td>${reportStatus(expense.payment_method, expense.paid_at)}</td>
@@ -2613,24 +2923,189 @@ async function loadFinancialReport() {
                 </tr>
             `).join('')
             : '<tr><td colspan="5">Tidak ada utang yang belum dibayar.</td></tr>';
+        payableBody.closest('.report-card').querySelector('.report-note').textContent =
+            'Daftar ini menunjukkan utang yang belum dibayar saat ini (tidak dibatasi periode). Pembayaran yang sudah terjadi masuk ke arus kas berdasarkan tanggal pembayaran.';
 
         const unknownPurchaseTotal = unknownPurchases.reduce((sum, purchase) =>
             sum + Number(purchase.qty) * Number(purchase.unit_price_at_time), 0);
         document.getElementById('report-cash-warning').innerText = unknownPurchases.length
             ? `${unknownPurchases.length} pembelian stok lama senilai Rp ${formatRp(unknownPurchaseTotal)} tidak memiliki status pembayaran, sehingga tidak dimasukkan ke arus kas. Penjualan GoFood/GrabFood dicatat sebagai piutang, bukan kas masuk.`
             : 'Penjualan Tunai/QRIS dihitung sebagai kas masuk. Penjualan GoFood/GrabFood menjadi piutang sebesar nilai setelah komisi; komisi dicatat sebagai beban, bukan kas keluar. Pembelian stok dan biaya operasional masuk arus kas pada tanggal pembayarannya.';
+        currentFinancialReport = {
+            period: reportPeriodLabel(),
+            revenue, cogs, grossProfit, netProfit, cashIn, cashOut,
+            sales, cogsLogs, expenses, spoiledLogs, stocktakeGains, cashEntries,
+            expenseCategories: [...expensesByCategory.entries()],
+            comparisonMetrics
+        };
+        renderFinancialReportCharts(sales, cogsLogs, expenses);
     } catch (error) {
+        if (requestId !== financialReportRequest) return;
         console.error('Gagal memuat laporan keuangan:', error);
         profitLossBody.innerHTML = '<tr><td colspan="2">Laporan gagal dimuat.</td></tr>';
-        cashFlowBody.innerHTML = '<tr><td colspan="4">Arus kas gagal dimuat.</td></tr>';
+        cashFlowBody.innerHTML = '<tr><td colspan="5">Arus kas gagal dimuat.</td></tr>';
         expenseBody.innerHTML = '<tr><td colspan="5">Biaya gagal dimuat.</td></tr>';
         payableBody.innerHTML = '<tr><td colspan="5">Utang gagal dimuat.</td></tr>';
-        alert(`Gagal memuat laporan keuangan: ${error.message}`);
+        currentFinancialReport = null;
+        if (financialTrendChart) { financialTrendChart.destroy(); financialTrendChart = null; }
+        if (financialExpenseChart) { financialExpenseChart.destroy(); financialExpenseChart = null; }
+        document.getElementById('financial-trend-chart').hidden = true;
+        document.getElementById('financial-trend-empty').hidden = false;
+        document.getElementById('financial-trend-empty').textContent = 'Grafik tidak tersedia karena data gagal dimuat.';
+        document.getElementById('financial-expense-chart').hidden = true;
+        document.getElementById('financial-expense-empty').hidden = false;
+        document.getElementById('financial-expense-empty').textContent = 'Grafik tidak tersedia karena data gagal dimuat.';
+        document.getElementById('financial-report-period-label').textContent = 'Data laporan tidak tersedia.';
+        document.getElementById('report-cash-summary').innerHTML =
+            '<p class="pos-history-error">Ringkasan kas tidak tersedia karena data gagal dimuat.</p>';
+        document.getElementById('financial-report-comparison').innerHTML =
+            '<p class="pos-history-error">Perbandingan tidak tersedia karena data gagal dimuat.</p>';
+        showToast(`Laporan keuangan gagal dimuat: ${error.message}`, 'error');
     }
 }
 
-document.getElementById('financial-report-apply').addEventListener('click', loadFinancialReport);
-document.getElementById('financial-report-refresh').addEventListener('click', loadFinancialReport);
+async function applyFinancialFilters() {
+    try {
+        reportDateBounds();
+        applyAccountingPeriodFilter();
+        await Promise.all([loadFinancialReport(), loadAccountingJournal()]);
+    } catch (error) {
+        showToast(error.message, 'warning');
+    }
+}
+
+function resetFinancialFilters() {
+    const now = new Date();
+    document.getElementById('report-range-mode').value = 'month';
+    document.getElementById('report-month').value = String(now.getMonth());
+    document.getElementById('report-year').value = String(now.getFullYear());
+    applyReportMonthToDates();
+    document.getElementById('accounting-account-filter').value = '';
+    document.getElementById('accounting-journal-search').value = '';
+    applyAccountingPeriodFilter();
+    applyFinancialFilters();
+}
+
+function exportVisibleFinancialReport() {
+    if (!currentFinancialReport) {
+        showToast('Tidak ada laporan yang dapat diekspor.', 'warning');
+        return;
+    }
+    if (activeReportTab === 'journal') {
+        exportAccountingJournal();
+        return;
+    }
+    const csvValue = value => `"${String(value).replace(/"/g, '""')}"`;
+    if (activeReportTab === 'ledger') {
+        const rows = [
+            ['Pizza Craft — Buku Besar / Neraca Saldo Mutasi', document.getElementById('accounting-period-label').textContent, 'Mata uang: Rupiah'],
+            [],
+            ['Neraca Saldo Mutasi'],
+            ...[...document.querySelectorAll('#accounting-trial-balance tr, #accounting-trial-balance-total tr')]
+                .map(row => [...row.children].map(cell => cell.innerText.replace(/\s+/g, ' ').trim())),
+            [],
+            ['Detail Buku Besar'],
+            ...[...document.querySelectorAll('.accounting-journal-panel table > thead tr, .accounting-journal-panel table > tbody tr')]
+                .map(row => [...row.children].map(cell => cell.innerText.replace(/\s+/g, ' ').trim()))
+        ];
+        downloadReportCsv(rows, `pizza-craft-buku-besar-${localDateValue(new Date())}.csv`, csvValue);
+        return;
+    }
+    const sections = activeReportTab === 'cash-flow'
+        ? [['Arus Kas', document.querySelector('.report-cash-flow-panel table')]]
+        : activeReportTab === 'transactions'
+            ? [
+                ['Ringkasan Penjualan', document.querySelector('#report-sales-summary')?.closest('table')],
+                ['Biaya Operasional', document.querySelector('#expense-table')?.closest('table')],
+                ['Utang Belum Dibayar', document.querySelector('#payables-table')?.closest('table')]
+            ]
+            : [['Laba Rugi', document.querySelector('.report-profit-loss-panel table')]];
+    const rows = [[`Pizza Craft — ${activeReportTab}`, currentFinancialReport.period, 'Mata uang: Rupiah'], []];
+    if (activeReportTab === 'cash-flow') {
+        rows.push(['Ringkasan Arus Kas']);
+        document.querySelectorAll('#report-cash-summary > div').forEach(item => {
+            rows.push([item.querySelector('span')?.innerText || '', item.querySelector('strong')?.innerText || '']);
+        });
+        rows.push([]);
+    }
+    if (activeReportTab === 'profit-loss' && currentFinancialReport.comparisonMetrics) {
+        rows.push(['Perbandingan periode sebelumnya']);
+        document.querySelectorAll('#financial-report-comparison .report-comparison-item').forEach(item => {
+            rows.push([item.querySelector('span')?.innerText || '', item.querySelector('strong')?.innerText || '', item.querySelector('small')?.innerText || '']);
+        });
+        rows.push([]);
+    }
+    sections.forEach(([title, table]) => {
+        if (!table) return;
+        rows.push([title]);
+        table.querySelectorAll(':scope > thead tr, :scope > tbody tr, :scope > tfoot tr').forEach(row => {
+            rows.push([...row.children].map(cell => cell.innerText.replace(/\s+/g, ' ').trim()));
+        });
+        rows.push([]);
+    });
+    if (activeReportTab === 'profit-loss' && financialTrendChart) {
+        rows.push(['Tren Harian (Rp)']);
+        rows.push(['Tanggal', ...financialTrendChart.data.datasets.map(dataset => dataset.label)]);
+        financialTrendChart.data.labels.forEach((label, index) => {
+            rows.push([label, ...financialTrendChart.data.datasets.map(dataset => dataset.data[index])]);
+        });
+        rows.push(['Komposisi biaya operasional (Rp)']);
+        rows.push(['Kategori', 'Nominal']);
+        currentFinancialReport.expenseCategories.forEach(([category, amount]) => rows.push([category, amount]));
+    }
+    downloadReportCsv(rows, `pizza-craft-${activeReportTab}-${localDateValue(new Date())}.csv`, csvValue);
+}
+
+function downloadReportCsv(rows, filename, csvValue = value => `"${String(value).replace(/"/g, '""')}"`) {
+    const csv = rows.map(row => row.map(csvValue).join(',')).join('\r\n');
+    const url = URL.createObjectURL(new Blob(['\uFEFF', csv], { type: 'text/csv;charset=utf-8' }));
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    link.click();
+    URL.revokeObjectURL(url);
+}
+
+document.getElementById('financial-report-apply').addEventListener('click', applyFinancialFilters);
+document.getElementById('financial-report-refresh').addEventListener('click', applyFinancialFilters);
+document.getElementById('financial-report-reset').addEventListener('click', resetFinancialFilters);
+document.getElementById('financial-report-export').addEventListener('click', exportVisibleFinancialReport);
+document.getElementById('financial-report-print').addEventListener('click', () => window.print());
+document.getElementById('report-month').addEventListener('change', () => {
+    document.getElementById('report-range-mode').value = 'month';
+    document.getElementById('accounting-month').value = document.getElementById('report-month').value;
+    applyReportMonthToDates();
+});
+document.getElementById('financial-report-compare').addEventListener('change', event => {
+    document.getElementById('report-compare-previous').checked = event.target.checked;
+    applyFinancialFilters();
+});
+document.getElementById('report-compare-previous').addEventListener('change', event => {
+    document.getElementById('financial-report-compare').checked = event.target.checked;
+    applyFinancialFilters();
+});
+document.getElementById('accounting-report-export').addEventListener('click', exportVisibleFinancialReport);
+document.getElementById('report-year').addEventListener('change', () => {
+    document.getElementById('report-range-mode').value = 'month';
+    document.getElementById('accounting-year').value = document.getElementById('report-year').value;
+    applyReportMonthToDates();
+});
+document.getElementById('report-range-mode').addEventListener('change', event => {
+    if (event.target.value === 'month') applyReportMonthToDates();
+    updateReportDateMode();
+});
+['report-start-date', 'report-end-date'].forEach(id => {
+    document.getElementById(id).addEventListener('change', () => {
+        document.getElementById('report-range-mode').value = 'custom';
+    });
+});
+document.querySelectorAll('[data-report-tab]').forEach(button => {
+    button.addEventListener('click', () => switchFinancialReportTab(button.dataset.reportTab));
+});
+document.getElementById('page-laporan').addEventListener('click', event => {
+    const sourceButton = event.target.closest('[data-report-reference]');
+    if (sourceButton) navigateToJournalReference(sourceButton.dataset.reportReference);
+});
 document.getElementById('menu-engineering-refresh').addEventListener('click', loadMenuEngineering);
 document.getElementById('menu-engineering-apply').addEventListener('click', loadMenuEngineering);
 document.getElementById('menu-engineering-period').addEventListener('change', event => {
@@ -2668,6 +3143,16 @@ document.getElementById('menu-simulation-reset').addEventListener('click', () =>
 document.getElementById('menu-simulation-close').addEventListener('click', () => closeMenuEngineeringSimulation());
 document.getElementById('accounting-journal-apply').addEventListener('click', () => {
     try {
+        if (document.getElementById('accounting-start-date').value &&
+            document.getElementById('accounting-end-date').value &&
+            document.getElementById('accounting-start-date').value > document.getElementById('accounting-end-date').value) {
+            throw new Error('Rentang tanggal jurnal tidak valid.');
+        }
+        document.getElementById('report-start-date').value = document.getElementById('accounting-start-date').value;
+        document.getElementById('report-end-date').value = document.getElementById('accounting-end-date').value;
+        document.getElementById('report-range-mode').value = 'custom';
+        updateReportDateMode();
+        loadFinancialReport();
         renderAccountingJournal();
     } catch (error) {
         showToast(error.message, 'warning');
@@ -2680,11 +3165,27 @@ document.getElementById('accounting-account-filter').addEventListener('change', 
         showToast(error.message, 'warning');
     }
 });
+document.getElementById('accounting-journal-search').addEventListener('input', () => {
+    try {
+        renderAccountingJournal();
+    } catch (error) {
+        showToast(error.message, 'warning');
+    }
+});
 document.getElementById('accounting-journal-reset').addEventListener('click', () => {
-    document.getElementById('accounting-start-date').value = '';
-    document.getElementById('accounting-end-date').value = '';
+    document.getElementById('accounting-month').value = document.getElementById('report-month').value;
+    document.getElementById('accounting-year').value = document.getElementById('report-year').value;
     document.getElementById('accounting-account-filter').value = '';
-    renderAccountingJournal();
+    document.getElementById('accounting-journal-search').value = '';
+    resetFinancialFilters();
+});
+['accounting-month', 'accounting-year'].forEach(id => {
+    document.getElementById(id).addEventListener('change', () => {
+        document.getElementById('report-month').value = document.getElementById('accounting-month').value;
+        document.getElementById('report-year').value = document.getElementById('accounting-year').value;
+        document.getElementById('report-range-mode').value = 'month';
+        applyReportMonthToDates();
+    });
 });
 document.getElementById('accounting-journal-export').addEventListener('click', () => {
     try {
@@ -2696,6 +3197,12 @@ document.getElementById('accounting-journal-export').addEventListener('click', (
         exportAccountingJournal();
     } catch (error) {
         showToast(error.message, 'warning');
+    }
+});
+document.getElementById('accounting-journal-search').addEventListener('keydown', event => {
+    if (event.key === 'Enter') {
+        event.preventDefault();
+        document.getElementById('accounting-journal-apply').click();
     }
 });
 
@@ -2773,7 +3280,6 @@ loadSuppliersAndMenus();
 loadInventory();
 loadJournalAndAnalysis();
 loadSalesJournal();
-loadAccountingJournal();
 loadTodaySalesTotal();
 loadPosSalesHistory();
 renderPosCart();
@@ -2781,6 +3287,13 @@ const dashboardToday = localDateValue(new Date());
 document.getElementById('dashboard-start-date').value = dashboardToday;
 document.getElementById('dashboard-end-date').value = dashboardToday;
 const reportToday = new Date();
+setReportPeriodOptions();
 document.getElementById('report-start-date').value = localDateValue(new Date(reportToday.getFullYear(), reportToday.getMonth(), 1));
 document.getElementById('report-end-date').value = localDateValue(reportToday);
+updateReportDateMode();
+applyAccountingPeriodFilter();
+document.getElementById('accounting-month').value = document.getElementById('report-month').value;
+document.getElementById('accounting-year').value = document.getElementById('report-year').value;
+switchFinancialReportTab('profit-loss', false);
 loadFinancialReport();
+loadAccountingJournal();

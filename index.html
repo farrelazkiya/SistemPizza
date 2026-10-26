@@ -444,22 +444,35 @@
                         <!-- FITUR BARU: Tombol Cetak PDF -->
                         <button onclick="window.print()" class="btn btn-print">🖨️ Cetak PDF</button>
                         <button id="accounting-journal-export" type="button" class="btn btn-export">📥 Ekspor CSV</button>
+                        <button id="accounting-report-export" type="button" class="btn btn-export">📊 Ekspor Tampilan</button>
                     </div>
                 </div>
 
+                <nav class="financial-report-tabs" aria-label="Navigasi laporan keuangan">
+                    <button type="button" data-report-tab="profit-loss"><i data-lucide="chart-no-axes-combined"></i>Laba Rugi</button>
+                    <button type="button" data-report-tab="cash-flow"><i data-lucide="landmark"></i>Arus Kas</button>
+                    <button type="button" data-report-tab="journal"><i data-lucide="book-open"></i>Jurnal Umum</button>
+                    <button type="button" data-report-tab="ledger"><i data-lucide="book-copy"></i>Buku Besar</button>
+                    <button type="button" data-report-tab="transactions"><i data-lucide="receipt-text"></i>Ringkasan Transaksi</button>
+                </nav>
                 <div class="card report-filter-card">
-                    <div class="report-date-filter accounting-journal-filters">
+                    <div class="report-date-filter accounting-journal-filters accounting-report-filters">
+                        <div class="form-group"><label for="accounting-month">Bulan</label><select id="accounting-month"></select></div>
+                        <div class="form-group"><label for="accounting-year">Tahun</label><select id="accounting-year"></select></div>
                         <div class="form-group"><label for="accounting-start-date">Dari tanggal</label><input type="date" id="accounting-start-date"></div>
                         <div class="form-group"><label for="accounting-end-date">Sampai tanggal</label><input type="date" id="accounting-end-date"></div>
                         <div class="form-group"><label for="accounting-account-filter">Akun buku besar</label><select id="accounting-account-filter"><option value="">Semua akun</option></select></div>
-                        <button id="accounting-journal-apply" type="button" class="btn">Tampilkan</button>
-                        <button id="accounting-journal-reset" type="button" class="btn btn-remove">Semua tanggal</button>
+                        <div class="form-group accounting-search-group"><label for="accounting-journal-search">Cari referensi / keterangan</label><input id="accounting-journal-search" type="search" placeholder="Contoh: PJ-12 atau pembelian"></div>
+                        <label class="report-compare-toggle"><input id="report-compare-previous" type="checkbox" checked> Bandingkan periode sebelumnya</label>
+                        <button id="accounting-journal-apply" type="button" class="btn">Terapkan Filter</button>
+                        <button id="accounting-journal-reset" type="button" class="btn btn-remove">Reset Filter</button>
                     </div>
+                    <p id="accounting-period-label" class="report-period-label">Periode belum diterapkan.</p>
                     <p class="report-note">Jurnal disusun dari transaksi yang tercatat pada sistem. Saldo berjalan adalah akumulasi mutasi sejak transaksi historis pertama yang tersedia, bukan saldo aktual karena saldo awal akun belum dicatat.</p>
                 </div>
 
-                <div class="card report-card">
-                    <div class="executive-card-heading"><div><h2>Neraca Saldo Mutasi</h2><p id="accounting-period-label" class="report-note">Semua transaksi</p></div></div>
+                <div class="card report-card accounting-ledger-panel">
+                    <div class="executive-card-heading"><div><h2>Neraca Saldo Mutasi</h2><p id="accounting-trial-period-label" class="report-note">Semua transaksi</p></div></div>
                     <div class="table-scroll">
                         <table class="table">
                             <thead><tr><th>Akun</th><th>Debit (Rp)</th><th>Kredit (Rp)</th><th>Saldo Mutasi</th></tr></thead>
@@ -470,7 +483,7 @@
                     <p id="accounting-balance-note" class="report-note"></p>
                 </div>
 
-                <div class="card report-card">
+                <div class="card report-card accounting-journal-panel">
                     <h2>Jurnal Umum</h2>
                     <div class="table-scroll">
                         <table class="table accounting-journal-table">
@@ -492,7 +505,7 @@
                     </div>
                 </div>
 
-                <div class="card report-card">
+                <div class="card report-card accounting-inventory-ledger-panel">
                     <div class="flex-between">
                         <div><h2>Buku Pembantu Persediaan</h2><p class="report-note">Rincian mutasi kuantitas dan nilai bahan baku; jurnal lengkap di atas mencakup seluruh akun.</p></div>
                         <select id="filter-ingredient" onchange="applyLedgerFilter()" class="filter-select">
@@ -506,7 +519,7 @@
                         </table>
                     </div>
                 </div>
-                <div class="card report-card">
+                <div class="card report-card accounting-sales-summary-panel">
                     <h2>Rincian Transaksi Penjualan</h2>
                     <div class="table-scroll">
                         <table class="table">
@@ -531,8 +544,30 @@
                     <button type="button" id="financial-report-refresh" class="btn">🔄 Perbarui Laporan</button>
                 </div>
 
+                <nav class="financial-report-tabs" aria-label="Navigasi laporan keuangan">
+                    <button type="button" data-report-tab="profit-loss"><i data-lucide="chart-no-axes-combined"></i>Laba Rugi</button>
+                    <button type="button" data-report-tab="cash-flow"><i data-lucide="landmark"></i>Arus Kas</button>
+                    <button type="button" data-report-tab="journal"><i data-lucide="book-open"></i>Jurnal Umum</button>
+                    <button type="button" data-report-tab="ledger"><i data-lucide="book-copy"></i>Buku Besar</button>
+                    <button type="button" data-report-tab="transactions"><i data-lucide="receipt-text"></i>Ringkasan Transaksi</button>
+                </nav>
                 <div class="card report-filter-card">
                     <div class="report-date-filter">
+                        <div class="form-group">
+                            <label for="report-month">Bulan</label>
+                            <select id="report-month"></select>
+                        </div>
+                        <div class="form-group">
+                            <label for="report-year">Tahun</label>
+                            <select id="report-year"></select>
+                        </div>
+                        <div class="form-group">
+                            <label for="report-range-mode">Jenis periode</label>
+                            <select id="report-range-mode">
+                                <option value="month">Bulan yang dipilih</option>
+                                <option value="custom">Rentang tanggal khusus</option>
+                            </select>
+                        </div>
                         <div class="form-group">
                             <label for="report-start-date">Dari tanggal</label>
                             <input type="date" id="report-start-date">
@@ -542,11 +577,15 @@
                             <input type="date" id="report-end-date">
                         </div>
                         <button type="button" id="financial-report-apply" class="btn">Tampilkan</button>
-                        <button type="button" onclick="window.print()" class="btn btn-print">🖨️ Cetak / PDF</button>
+                        <button type="button" id="financial-report-reset" class="btn btn-remove">Reset Filter</button>
+                        <label class="report-compare-toggle"><input id="financial-report-compare" type="checkbox" checked> Bandingkan periode sebelumnya</label>
+                        <button type="button" id="financial-report-print" class="btn btn-print"><i data-lucide="printer"></i> Cetak / PDF</button>
+                        <button type="button" id="financial-report-export" class="btn btn-export"><i data-lucide="download"></i> Ekspor Excel</button>
                     </div>
+                    <p id="financial-report-period-label" class="report-period-label">Periode belum diterapkan.</p>
                 </div>
 
-                <div class="card report-card">
+                <div class="card report-card menu-engineering-analysis-panel">
                     <div class="flex-between menu-engineering-header">
                         <div>
                             <h2>Analisis Menu Engineering & Food Cost %</h2>
@@ -652,7 +691,7 @@
                     <p id="menu-engineering-data-note" class="report-note">Perhitungan menggunakan data historis dan biaya HPP dari sistem.</p>
                 </div>
 
-                <div class="report-summary-grid">
+                <div class="report-summary-grid report-summary-panel">
                     <div class="card report-summary-card">
                         <h3>Penjualan</h3>
                         <strong id="report-revenue">Rp 0</strong>
@@ -674,11 +713,26 @@
                         <strong id="report-platform-receivable">Rp 0</strong>
                     </div>
                 </div>
+                <div id="financial-report-comparison" class="report-comparison-grid report-summary-panel">
+                    <p class="report-note">Perbandingan periode akan ditampilkan setelah laporan dimuat.</p>
+                </div>
 
-                <div class="card report-card">
+                <div class="report-visualizations report-visualization-panel">
+                    <div class="card report-card">
+                        <div class="executive-card-heading"><div><h2>Tren Pendapatan, HPP & Laba</h2><p class="report-note">Nilai harian (Rp) dalam periode laporan</p></div></div>
+                        <div class="report-chart-wrap"><canvas id="financial-trend-chart" aria-label="Tren harian pendapatan HPP dan laba"></canvas><p id="financial-trend-empty" class="report-chart-empty" hidden>Tidak ada transaksi pada periode ini.</p></div>
+                    </div>
+                    <div class="card report-card">
+                        <div class="executive-card-heading"><div><h2>Komposisi Biaya Operasional</h2><p class="report-note">Rincian biaya yang tercatat per kategori (Rp)</p></div></div>
+                        <div class="report-chart-wrap"><canvas id="financial-expense-chart" aria-label="Komposisi biaya operasional per kategori"></canvas><p id="financial-expense-empty" class="report-chart-empty" hidden>Tidak ada biaya operasional pada periode ini.</p></div>
+                    </div>
+                </div>
+
+                <div class="card report-card report-profit-loss-panel">
                     <h2>Laporan Laba Rugi</h2>
                     <div class="table-scroll">
-                        <table class="table">
+                        <table class="table report-table">
+                            <thead><tr><th>Keterangan (Rp)</th><th class="report-amount">Nominal</th></tr></thead>
                             <tbody id="profit-loss-table">
                                 <tr><td>Memuat laporan...</td><td></td></tr>
                             </tbody>
@@ -688,27 +742,38 @@
                     <p class="report-note">Laba rugi menggunakan basis akrual atas transaksi yang tersimpan. Saldo awal aset, modal, dan kewajiban tidak tersedia untuk menyusun neraca posisi keuangan.</p>
                 </div>
 
-                <div class="card report-card">
+                <div class="card report-card report-cash-flow-panel">
                     <h2>Arus Kas</h2>
                     <div class="report-summary-grid cash-summary-grid">
-                        <div><span>Kas masuk</span><strong id="report-cash-in">Rp 0</strong></div>
-                        <div><span>Kas keluar</span><strong id="report-cash-out">Rp 0</strong></div>
+                        <div><span>Kas & bank masuk tercatat</span><strong id="report-cash-in">Rp 0</strong></div>
+                        <div><span>Pembayaran keluar tercatat</span><strong id="report-cash-out">Rp 0</strong></div>
                     </div>
                     <div class="table-scroll">
                         <table class="table">
                             <thead>
-                                <tr><th>Tanggal</th><th>Keterangan</th><th>Kas Masuk</th><th>Kas Keluar</th></tr>
+                                <tr><th>Tanggal</th><th>Keterangan</th><th>Kas / Bank Masuk</th><th>Pembayaran Keluar</th><th>Sumber</th></tr>
                             </thead>
                             <tbody id="cash-flow-table">
-                                <tr><td colspan="4">Memuat arus kas...</td></tr>
+                                <tr><td colspan="5">Memuat arus kas...</td></tr>
                             </tbody>
                         </table>
                     </div>
                     <p id="report-cash-warning" class="report-note"></p>
-                    <p class="report-note">Arus kas bersih adalah kas masuk dikurangi pembayaran yang tercatat. Saldo awal dan saldo akhir kas belum dihitung.</p>
+                    <div id="report-cash-summary" class="report-cash-summary"></div>
+                    <p class="report-note">Saldo awal dan saldo akhir kas tidak tersedia karena sistem belum menyimpan saldo pembuka maupun seluruh mutasi akun bank. Perubahan kas hanya merangkum penerimaan/pembayaran yang tercatat pada periode, bukan saldo kas akhir.</p>
                 </div>
 
-                <div class="card report-card">
+                <div class="card report-card report-transaction-panel">
+                    <h2>Ringkasan Transaksi Penjualan</h2>
+                    <div class="table-scroll">
+                        <table class="table">
+                            <thead><tr><th>Tanggal</th><th>No. Transaksi</th><th>Metode</th><th>Penjualan</th><th>Komisi</th><th>Penerimaan / Piutang</th><th>Sumber</th></tr></thead>
+                            <tbody id="report-sales-summary"><tr><td colspan="7">Memuat ringkasan transaksi...</td></tr></tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <div class="card report-card report-transaction-panel">
                     <h2>Catat Biaya Operasional</h2>
                     <form id="expense-form" class="expense-form">
                         <div class="form-group">
@@ -744,7 +809,7 @@
                     </div>
                 </div>
 
-                <div class="card report-card">
+                <div class="card report-card report-transaction-panel">
                     <h2>Utang Belum Dibayar</h2>
                     <p class="report-note">Tandai dibayar saat transaksi kredit benar-benar dilunasi agar tercatat di periode arus kas yang tepat.</p>
                     <div class="table-scroll">

@@ -88,8 +88,42 @@ input[readonly] { background: #f1f5f9; color: #475569; cursor: not-allowed; }
 
 /* Laporan keuangan */
 .report-filter-card, .report-card { margin-bottom: 20px; }
-.report-date-filter { display: grid; grid-template-columns: 1fr 1fr auto auto; gap: 14px; align-items: end; }
+.report-date-filter { display: grid; grid-template-columns: repeat(3,minmax(145px,1fr)) auto auto; gap: 14px; align-items: end; }
 .report-date-filter .form-group { margin-bottom: 0; }
+.report-date-filter .form-group[hidden] { display: none; }
+.financial-report-tabs { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 16px; padding: 6px; border: 1px solid #e2e8f0; border-radius: 14px; background: rgba(255,255,255,.86); }
+.financial-report-tabs button { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 42px; padding: 9px 14px; border: 0; border-radius: 10px; background: transparent; color: #475569; font-size: .83rem; font-weight: 700; transition: background .18s ease, color .18s ease; }
+.financial-report-tabs button:hover { background: #f1f5f9; color: #1e293b; }
+.financial-report-tabs button.is-active { background: #dc3e34; color: #fff; box-shadow: 0 5px 12px rgba(220,62,52,.18); }
+.financial-report-tabs svg { width: 17px; height: 17px; }
+.report-period-label { margin: 12px 0 0; color: #334155; font-size: .87rem; font-weight: 750; }
+.report-compare-toggle { display: inline-flex; align-items: center; gap: 8px; color: #475569; font-size: .8rem; font-weight: 650; }
+.report-compare-toggle input { width: 16px; height: 16px; accent-color: #dc3e34; }
+.accounting-report-filters { grid-template-columns: repeat(4,minmax(130px,1fr)); }
+.accounting-search-group { grid-column: span 2; }
+.report-summary-panel[hidden], .report-visualization-panel[hidden], .report-profit-loss-panel[hidden], .report-cash-flow-panel[hidden], .report-transaction-panel[hidden], .menu-engineering-analysis-panel[hidden], .accounting-ledger-panel[hidden], .accounting-journal-panel[hidden], .accounting-inventory-ledger-panel[hidden], .accounting-sales-summary-panel[hidden] { display: none !important; }
+.report-comparison-grid { display: grid; grid-template-columns: repeat(auto-fit,minmax(190px,1fr)); gap: 10px; margin: -6px 0 20px; }
+.report-comparison-item { display: flex; flex-direction: column; gap: 4px; padding: 13px 15px; border: 1px solid #e2e8f0; border-radius: 12px; background: #fff; }
+.report-comparison-item span { color: #64748b; font-size: .75rem; font-weight: 650; }
+.report-comparison-item strong { color: #172033; font-size: 1rem; }
+.report-comparison-item small { color: #64748b; font-size: .71rem; }
+.report-visualizations { display: grid; grid-template-columns: minmax(0,1.5fr) minmax(280px,1fr); gap: 16px; }
+.report-chart-wrap { position: relative; height: 300px; }
+.report-chart-empty { position: absolute; inset: 0; display: grid; place-items: center; color: #64748b; font-size: .86rem; text-align: center; }
+.report-chart-empty[hidden] { display: none; }
+.report-detail { margin-top: 6px; color: #64748b; font-size: .74rem; }
+.report-detail summary { width: fit-content; cursor: pointer; color: #4f46e5; font-weight: 650; }
+.report-detail-scroll { max-width: 760px; max-height: 260px; margin-top: 8px; overflow: auto; border: 1px solid #e2e8f0; border-radius: 9px; }
+.report-detail table { width: 100%; border-collapse: collapse; background: #fff; }
+.report-detail td { padding: 8px 10px; border-bottom: 1px solid #f1f5f9; white-space: nowrap; }
+.report-source-link { padding: 2px 6px; border: 0; border-radius: 6px; background: #eef2ff; color: #4338ca; font-size: .72rem; font-weight: 700; cursor: pointer; }
+.report-source-link:hover { background: #e0e7ff; }
+.report-subtotal { background: #f8fafc; }
+.report-cash-summary { display: grid; grid-template-columns: repeat(auto-fit,minmax(175px,1fr)); gap: 10px; margin: 14px 0; }
+.report-cash-summary > div { display: flex; flex-direction: column; gap: 5px; padding: 12px; border: 1px solid #e2e8f0; border-radius: 11px; background: #f8fafc; }
+.report-cash-summary span { color: #64748b; font-size: .73rem; }
+.report-cash-summary strong { color: #172033; font-size: .93rem; }
+.report-cash-summary small { color: #64748b; font-size: .69rem; }
 .report-summary-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 16px; margin-bottom: 20px; }
 .report-summary-card h3 { color: #64748b; font-size: 0.9rem; font-weight: 600; }
 .report-summary-card strong { display: block; margin-top: 8px; color: #0f172a; font-size: 1.4rem; overflow-wrap: anywhere; }
@@ -579,7 +613,8 @@ label { color: #334155; font-size: .82rem; }
     .executive-kpi-grid { grid-template-columns: repeat(2,minmax(0,1fr)); }
     .pos-menu-grid { grid-template-columns: repeat(2,minmax(0,1fr)); }
     .pos-history-filters { grid-template-columns: repeat(3,minmax(0,1fr)); }
-    .accounting-journal-filters { grid-template-columns: repeat(3,minmax(0,1fr)); }
+    .accounting-journal-filters, .accounting-report-filters { grid-template-columns: repeat(3,minmax(0,1fr)); }
+    .report-visualizations { grid-template-columns: 1fr; }
     .menu-engineering-filters { grid-template-columns: repeat(2,minmax(0,1fr)); }
     .menu-engineering-filters > .btn { justify-content: center; }
 }
@@ -633,8 +668,18 @@ label { color: #334155; font-size: .82rem; }
     .pos-history-filters { grid-template-columns: repeat(2,minmax(0,1fr)); }
     .pos-history-filters label:first-child { grid-column: 1 / -1; }
     .accounting-journal-filters { grid-template-columns: repeat(2,minmax(0,1fr)); }
+    .accounting-report-filters { grid-template-columns: repeat(2,minmax(0,1fr)); }
     .accounting-journal-filters .form-group:nth-child(3) { grid-column: 1 / -1; }
     .accounting-journal-filters > .btn { justify-content: center; }
+    .accounting-search-group { grid-column: 1 / -1; }
+    .financial-report-tabs { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); }
+    .financial-report-tabs button { min-width: 0; padding-right: 8px; padding-left: 8px; font-size: .74rem; }
+    .financial-report-tabs button:last-child { grid-column: 1 / -1; }
+    .report-date-filter { grid-template-columns: 1fr; }
+    .report-date-filter .btn { justify-content: center; }
+    .report-chart-wrap { height: 250px; }
+    .report-visualizations { grid-template-columns: minmax(0,1fr); }
+    .report-comparison-grid { grid-template-columns: repeat(2,minmax(0,1fr)); }
     .menu-engineering-filters { grid-template-columns: 1fr; }
     .menu-engineering-filters .form-group, .menu-engineering-filters > .btn { min-width: 0; width: 100%; }
     .menu-engineering-period-caption { align-items: flex-start; flex-direction: column; }
@@ -647,6 +692,12 @@ label { color: #334155; font-size: .82rem; }
     .pos-cart-item-controls { gap: 4px; }
 }
 @media print {
+    .financial-report-tabs, .report-filter-card, .header-title button, .report-source-link, .report-detail summary, #expense-form, .btn, .sidebar, .topbar { display: none !important; }
+    .page-section:not(.active) { display: none !important; }
+    .report-detail[open] .report-detail-scroll { max-height: none; overflow: visible; }
+    .report-card, .card { break-inside: avoid; border: 1px solid #cbd5e1; box-shadow: none; }
+    .table-scroll { overflow: visible !important; }
+    .accounting-journal-table, .menu-engineering-table { min-width: 0 !important; }
     body.pos-printing * { visibility: hidden !important; }
     body.pos-printing #pos-receipt-dialog,
     body.pos-printing #pos-receipt-dialog * { visibility: visible !important; }
