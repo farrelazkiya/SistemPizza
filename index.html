@@ -23,6 +23,8 @@
             </div>
             <ul class="sidebar-menu">
                 <li class="active" onclick="switchPage('page-dashboard', this)">📊 Dashboard Utama</li>
+                <li onclick="switchPage('page-kasir', this)">🛒 Kasir & Penjualan</li>
+                <li onclick="switchPage('page-resep', this)">🧾 Kelola Resep</li>
                 <li onclick="switchPage('page-transaksi', this)">📝 Catat Transaksi</li>
                 <li onclick="switchPage('page-jurnal', this)">📖 Buku Besar & Laporan</li>
             </ul>
@@ -88,7 +90,83 @@
                 </div>
             </section>
 
-            <!-- HALAMAN 2: INPUT TRANSAKSI -->
+            <!-- HALAMAN 2: KASIR -->
+            <section id="page-kasir" class="page-section">
+                <div class="header-title">
+                    <h1>Kasir & Penjualan</h1>
+                    <p>Pilih menu, susun keranjang, lalu simpan penjualan untuk memotong stok sesuai resep.</p>
+                </div>
+
+                <div class="card form-card pos-add-card">
+                    <form id="pos-add-form">
+                        <div class="form-group">
+                            <label for="pos-menu-select">Menu Pizza</label>
+                            <select id="pos-menu-select" required><option value="">Memuat menu...</option></select>
+                        </div>
+                        <div class="form-group">
+                            <label for="pos-quantity">Jumlah</label>
+                            <input type="number" id="pos-quantity" min="1" step="1" value="1" required>
+                        </div>
+                        <button type="submit" class="btn">➕ Tambahkan ke Keranjang</button>
+                    </form>
+                </div>
+
+                <div class="card pos-cart-card">
+                    <h3>🛍️ Keranjang Penjualan</h3>
+                    <div class="table-scroll">
+                        <table class="table">
+                            <thead>
+                                <tr><th>Menu</th><th>Harga</th><th>Jumlah</th><th>Subtotal</th><th>Aksi</th></tr>
+                            </thead>
+                            <tbody id="pos-cart-table">
+                                <tr><td colspan="5">Keranjang masih kosong.</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                    <div class="pos-checkout">
+                        <strong>Total: <span id="pos-total">Rp 0</span></strong>
+                        <button type="button" id="pos-checkout-button" class="btn" disabled>✅ Simpan Penjualan</button>
+                    </div>
+                </div>
+            </section>
+
+            <!-- HALAMAN 3: RESEP -->
+            <section id="page-resep" class="page-section">
+                <div class="header-title">
+                    <h1>Kelola Resep Menu</h1>
+                    <p>Tentukan bahan dan takaran yang digunakan untuk satu porsi menu.</p>
+                </div>
+
+                <div class="card recipe-card">
+                    <div class="form-group">
+                        <label for="recipe-menu-select">Pilih Menu Pizza</label>
+                        <select id="recipe-menu-select"><option value="">Memuat menu...</option></select>
+                    </div>
+                    <form id="recipe-form" class="recipe-form">
+                        <div class="form-group">
+                            <label for="recipe-ingredient-select">Bahan Baku</label>
+                            <select id="recipe-ingredient-select" required><option value="">Memuat bahan...</option></select>
+                        </div>
+                        <div class="form-group">
+                            <label for="recipe-quantity">Takaran per porsi</label>
+                            <input type="number" id="recipe-quantity" min="0.01" step="0.01" required placeholder="Contoh: 0.25">
+                        </div>
+                        <button type="submit" class="btn">💾 Simpan Bahan Resep</button>
+                    </form>
+                    <div class="table-scroll">
+                        <table class="table">
+                            <thead>
+                                <tr><th>Bahan Baku</th><th>Takaran per Porsi</th><th>Aksi</th></tr>
+                            </thead>
+                            <tbody id="recipe-table">
+                                <tr><td colspan="3">Pilih menu untuk melihat resep.</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+
+            <!-- HALAMAN 4: INPUT TRANSAKSI -->
             <section id="page-transaksi" class="page-section">
                 <div class="header-title">
                     <h1>Catat Mutasi Stok (Audit Trail)</h1>
@@ -129,7 +207,7 @@
                 </div>
             </section>
 
-            <!-- HALAMAN 3: BUKU BESAR PEMBANTU & JURNAL -->
+            <!-- HALAMAN 5: BUKU BESAR PEMBANTU & JURNAL -->
             <section id="page-jurnal" class="page-section">
                 <div class="header-title flex-between">
                     <div>
