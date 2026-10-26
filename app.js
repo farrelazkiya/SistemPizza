@@ -13,8 +13,12 @@ const inventoryLogCost = (log) => {
 // Variabel Global untuk menyimpan instance ChartJS agar bisa di-update
 let inventoryChartInstance = null;
 let menuEngineeringChartInstance = null;
+let executiveCharts = {};
 let menuItems = [];
 let posCart = [];
+let inventorySnapshot = null;
+let expiringBatchSnapshot = [];
+let executiveDashboardRequest = 0;
 
 function showToast(message, type = 'success') {
     const region = document.getElementById('toast-region');
@@ -76,6 +80,19 @@ function switchPage(pageId, element) {
     element.classList.add('active');
     document.getElementById('current-page-title').textContent = activePage.querySelector('h1')?.textContent || 'Workspace';
     if (pageId === 'page-laporan') loadMenuEngineering();
+}
+
+function navigateToPage(pageId, focusId = '') {
+    const pageLink = document.querySelector(`.sidebar-menu li[onclick*="${pageId}"]`);
+    if (!pageLink) throw new Error(`Navigasi ke halaman ${pageId} tidak ditemukan.`);
+    switchPage(pageId, pageLink);
+    if (!focusId) return;
+    window.setTimeout(() => {
+        const target = document.getElementById(focusId);
+        if (!target) throw new Error(`Tujuan aksi cepat ${focusId} tidak ditemukan.`);
+        target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        target.querySelector('input:not([type="hidden"]), select, textarea')?.focus({ preventScroll: true });
+    }, 80);
 }
 
 function toggleDynamicFields() {
@@ -582,12 +599,16 @@ function renderChart(labels, dataValues) {
 async function loadInventory() {
     const { data, error } = await supabaseClient.from('ingredients').select('*').order('id');
     if (error) {
+        inventorySnapshot = null;
+        expiringBatchSnapshot = null;
         console.error('Gagal memuat persediaan:', error);
         document.getElementById('inventory-table').innerHTML = '<tr><td colspan="4">Gagal memuat data persediaan.</td></tr>';
         document.getElementById('stocktake-table').innerHTML = '<tr><td colspan="4">Gagal memuat data persediaan.</td></tr>';
+        setExecutiveDashboardError(`Persediaan gagal dimuat: ${error.message}`);
         alert(`Gagal memuat persediaan: ${error.message}`);
         return;
     }
+    inventorySnapshot = data || [];
 
     let totalAssetRupiah = 0;
     const tableBody = document.getElementById('inventory-table');
@@ -675,11 +696,13 @@ async function loadInventory() {
         .lte('expiry_date', warningDateValue)
         .order('expiry_date');
     if (expiryError) {
+        expiringBatchSnapshot = null;
         console.error('Gagal memuat peringatan batch kedaluwarsa:', expiryError);
         expiryAlertList.innerHTML = '<li>Gagal memuat data batch kedaluwarsa.</li>';
         expiryAlertContainer.classList.remove('hidden');
         alert(`Gagal memuat peringatan kedaluwarsa: ${expiryError.message}`);
     } else if (expiringBatches && expiringBatches.length > 0) {
+        expiringBatchSnapshot = expiringBatches;
         const today = new Date();
         today.setHours(0, 0, 0, 0);
         expiryAlertList.innerHTML = expiringBatches.map(batch => {
@@ -694,12 +717,14 @@ async function loadInventory() {
         }).join('');
         expiryAlertContainer.classList.remove('hidden');
     } else {
+        expiringBatchSnapshot = [];
         expiryAlertList.innerHTML = '';
         expiryAlertContainer.classList.add('hidden');
     }
     
     // Panggil fungsi render chart
     renderChart(chartLabels, chartData);
+    await loadExecutiveDashboard();
 }
 
 async function loadJournalAndAnalysis(filterIngredientId = '') {
@@ -1162,6 +1187,406 @@ async function fetchAllReportRows(queryFactory) {
     }
 }
 
+function dashboardDateRange() {
+    const mode = document.getElementById('dashboard-period').value;
+    const today = new Date();
+    const start = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+    const end = new Date(start);
+    let label;
+
+    if (mode === 'last7') {
+        start.setDate(start.getDate() - 6);
+        end.setDate(end.getDate() + 1);
+        label = `${start.toLocaleDateString('id-ID')} – ${new Date(end.getTime() - 1).toLocaleDateString('id-ID')}`;
+    } else if (mode === 'month') {
+        start.setDate(1);
+        end.setDate(end.getDate() + 1);
+        label = start.toLocaleDateString('id-ID', { month: 'long', year: 'numeric' });
+    } else if (mode === 'previous_month') {
+        start.setDate(1);
+        start.setMonth(start.getMonth() - 1);
+        end.setDate(1);
+        label = start.toLocaleDateString('id-ID', { month: 'long', year: 'numeric' });
+    } else if (mode === 'custom') {
+        const startValue = document.getElementById('dashboard-start-date').value;
+        const endValue = document.getElementById('dashboard-end-date').value;
+        if (!startValue || !endValue || startValue > endValue) {
+            throw new Error('Pilih rentang tanggal dashboard yang valid.');
+        }
+        const [startYear, startMonth, startDay] = startValue.split('-').map(Number);
+        const [endYear, endMonth, endDay] = endValue.split('-').map(Number);
+        start.setFullYear(startYear, startMonth - 1, startDay);
+        end.setFullYear(endYear, endMonth - 1, endDay);
+        end.setDate(end.getDate() + 1);
+        label = `${start.toLocaleDateString('id-ID')} – ${new Date(end.getTime() - 1).toLocaleDateString('id-ID')}`;
+    } else {
+        end.setDate(end.getDate() + 1);
+        label = start.toLocaleDateString('id-ID', { dateStyle: 'long' });
+    }
+
+    const duration = Math.max(1, Math.round((end - start) / 86400000));
+    const previousStart = new Date(start);
+    previousStart.setDate(previousStart.getDate() - duration);
+    return {
+        start,
+        end,
+        previousStart,
+        previousEnd: new Date(start),
+        label,
+        currentStartIso: start.toISOString(),
+        currentEndIso: end.toISOString(),
+        previousStartIso: previousStart.toISOString()
+    };
+}
+
+function dashboardChange(current, previous) {
+    if (previous === 0) return current === 0 ? 'Tidak ada perubahan periode' : 'Belum ada pembanding';
+    const change = ((current - previous) / Math.abs(previous)) * 100;
+    const direction = change > 0 ? 'naik' : change < 0 ? 'turun' : 'tetap';
+    return `${direction} ${Math.abs(change).toFixed(1)}% vs periode sebelumnya`;
+}
+
+function renderExecutiveKpis(metrics, previousMetrics, periodLabel, inventoryValue, totalPayables) {
+    const kpis = [
+        {
+            label: 'Penjualan bersih',
+            value: metrics.revenue,
+            previous: previousMetrics.revenue,
+            icon: 'banknote',
+            note: 'Nilai penjualan tercatat; komisi marketplace dihitung terpisah.'
+        },
+        { label: 'HPP produk terjual', value: metrics.cogs, previous: previousMetrics.cogs, icon: 'package-minus', note: 'Berdasarkan pemakaian bahan pada transaksi.' },
+        { label: 'Laba kotor', value: metrics.grossProfit, previous: previousMetrics.grossProfit, icon: 'chart-no-axes-combined', note: 'Penjualan dikurangi HPP produk terjual.' },
+        { label: 'Laba bersih', value: metrics.netProfit, previous: previousMetrics.netProfit, icon: 'wallet', note: 'Setelah biaya operasional, komisi, dan kerusakan.' },
+        { label: 'Saldo kas & bank', unavailable: true, icon: 'landmark', note: 'Saldo awal kas/bank belum tersedia untuk menghitung saldo.' },
+        { label: 'Nilai persediaan', value: inventoryValue, icon: 'warehouse', note: 'Kondisi terkini, tidak terikat filter periode.' },
+        { label: 'Piutang marketplace', unavailable: true, icon: 'receipt-text', note: 'Status settlement GoFood/GrabFood belum dicatat.' },
+        { label: 'Utang belum dibayar', value: totalPayables, icon: 'file-clock', note: 'Utang supplier dan biaya operasional; jatuh tempo tidak dicatat.' }
+    ];
+    document.getElementById('executive-kpis').innerHTML = kpis.map(kpi => `
+        <article class="card executive-kpi">
+            <div class="executive-kpi-top"><span class="executive-kpi-icon"><i data-lucide="${kpi.icon}"></i></span><span class="executive-kpi-label">${kpi.label}</span></div>
+            <strong class="executive-kpi-value${kpi.value < 0 ? ' text-danger' : ''}">${kpi.unavailable ? 'Tidak tersedia' : `Rp ${formatRp(kpi.value)}`}</strong>
+            <span class="executive-kpi-period">${kpi.previous === undefined ? 'Posisi saat ini' : escapeHtml(periodLabel)}</span>
+            <span class="executive-kpi-change">${kpi.previous === undefined ? escapeHtml(kpi.note) : escapeHtml(dashboardChange(kpi.value, kpi.previous))}</span>
+        </article>
+    `).join('');
+    if (window.lucide) window.lucide.createIcons();
+}
+
+function renderExecutiveChart(canvasId, type, data, options) {
+    if (executiveCharts[canvasId]) executiveCharts[canvasId].destroy();
+    const canvas = document.getElementById(canvasId);
+    executiveCharts[canvasId] = new Chart(canvas, { type, data, options });
+}
+
+function renderExecutiveWarnings(inventory, expiringBatches, unpaidPurchases, unpaidExpenses, metrics, previousMetrics) {
+    const warnings = [];
+    inventory.filter(item => Number(item.stock_qty) <= Number(item.min_stock)).forEach(item => {
+        warnings.push({
+            type: 'critical',
+            icon: 'package-x',
+            title: `Stok kritis: ${item.name}`,
+            detail: `${item.stock_qty} ${item.unit} tersisa; batas minimum ${item.min_stock} ${item.unit}.`
+        });
+    });
+    if (expiringBatches === null) {
+        warnings.push({
+            type: 'warning',
+            icon: 'calendar-x',
+            title: 'Peringatan kedaluwarsa tidak tersedia',
+            detail: 'Data batch gagal dimuat; periksa koneksi dan migrasi batch tracking.'
+        });
+    }
+    (expiringBatches || []).forEach(batch => {
+        warnings.push({
+            type: 'warning',
+            icon: 'calendar-clock',
+            title: `Batch mendekati kedaluwarsa: ${batch.ingredients?.name || 'Bahan baku'}`,
+            detail: `Batch ${batch.batch_number}, sisa ${batch.quantity_remaining} ${batch.ingredients?.unit || ''}, kedaluwarsa ${new Date(`${batch.expiry_date}T00:00:00`).toLocaleDateString('id-ID')}.`
+        });
+    });
+
+    const now = Date.now();
+    const olderThan30Days = [...unpaidPurchases, ...unpaidExpenses]
+        .filter(item => item.created_at && now - new Date(item.created_at).getTime() > 30 * 86400000);
+    if (unpaidPurchases.length || unpaidExpenses.length) {
+        warnings.push({
+            type: olderThan30Days.length ? 'critical' : 'warning',
+            icon: 'file-clock',
+            title: `${unpaidPurchases.length + unpaidExpenses.length} kewajiban belum dibayar`,
+            detail: `Utang supplier Rp ${formatRp(unpaidPurchases.reduce((sum, row) => sum + Number(row.qty) * Number(row.unit_price_at_time), 0))} dan biaya Rp ${formatRp(unpaidExpenses.reduce((sum, row) => sum + Number(row.amount), 0))}. Jatuh tempo tidak tersedia${olderThan30Days.length ? `; ${olderThan30Days.length} kewajiban tercatat lebih dari 30 hari` : ''}.`
+        });
+    }
+    if (previousMetrics.revenue > 0 && metrics.revenue <= previousMetrics.revenue * 0.8) {
+        warnings.push({
+            type: 'warning',
+            icon: 'trending-down',
+            title: 'Penjualan menurun signifikan',
+            detail: `Turun ${Math.abs(((metrics.revenue - previousMetrics.revenue) / previousMetrics.revenue) * 100).toFixed(1)}% dibandingkan periode sebelumnya.`
+        });
+    }
+    const currentMargin = metrics.revenue > 0 ? metrics.grossProfit / metrics.revenue : null;
+    const previousMargin = previousMetrics.revenue > 0 ? previousMetrics.grossProfit / previousMetrics.revenue : null;
+    if (currentMargin !== null && previousMargin !== null && currentMargin <= previousMargin - 0.05) {
+        warnings.push({
+            type: 'warning',
+            icon: 'chart-no-axes-combined',
+            title: 'Margin kotor menurun',
+            detail: `Margin turun ${((previousMargin - currentMargin) * 100).toFixed(1)} poin persentase dibandingkan periode sebelumnya.`
+        });
+    }
+
+    const container = document.getElementById('executive-alerts');
+    document.getElementById('executive-alert-count').textContent = `${warnings.length} peringatan`;
+    document.getElementById('executive-alert-count').className = `badge ${warnings.some(item => item.type === 'critical') ? 'badge-out' : warnings.length ? 'badge-star' : 'badge-normal'}`;
+    container.innerHTML = warnings.length
+        ? warnings.map(item => `
+            <div class="executive-alert-item ${item.type}">
+                <i data-lucide="${item.icon}"></i>
+                <div><strong>${escapeHtml(item.title)}</strong><span>${escapeHtml(item.detail)}</span></div>
+            </div>
+        `).join('')
+        : '<div class="executive-empty-state"><i data-lucide="circle-check"></i><span>Tidak ada peringatan operasional berdasarkan data saat ini.</span></div>';
+    if (window.lucide) window.lucide.createIcons();
+}
+
+function setExecutiveDashboardError(message) {
+    Object.entries(executiveCharts).forEach(([canvasId, chart]) => {
+        chart.destroy();
+        delete executiveCharts[canvasId];
+        document.getElementById(canvasId).classList.add('hidden');
+    });
+    [
+        ['executive-sales-empty', 'Grafik tidak tersedia karena data gagal dimuat.'],
+        ['executive-profit-empty', 'Grafik tidak tersedia karena data gagal dimuat.'],
+        ['executive-menu-empty', 'Grafik tidak tersedia karena data gagal dimuat.'],
+        ['executive-expense-empty', 'Grafik tidak tersedia karena data gagal dimuat.']
+    ].forEach(([id, text]) => {
+        const empty = document.getElementById(id);
+        empty.textContent = text;
+        empty.classList.remove('hidden');
+    });
+    document.getElementById('executive-kpis').innerHTML = `
+        <div class="card executive-load-error"><i data-lucide="circle-alert"></i><strong>Dashboard gagal dimuat</strong><span>${escapeHtml(message)}</span></div>
+    `;
+    document.getElementById('executive-alerts').innerHTML = '<div class="executive-load-error">Peringatan operasional tidak tersedia karena data gagal dimuat.</div>';
+    document.getElementById('executive-alert-count').textContent = 'Gagal dimuat';
+    document.getElementById('dashboard-period-label').textContent = 'Data periode tidak tersedia.';
+    if (window.lucide) window.lucide.createIcons();
+}
+
+async function loadExecutiveDashboard() {
+    const requestId = ++executiveDashboardRequest;
+    const kpiContainer = document.getElementById('executive-kpis');
+    kpiContainer.innerHTML = Array.from({ length: 8 }, () => '<div class="card executive-kpi skeleton-card"></div>').join('');
+    document.getElementById('executive-alerts').innerHTML = '<div class="executive-loading"><span class="loading-spinner"></span>Memuat peringatan operasional...</div>';
+
+    try {
+        if (!inventorySnapshot) throw new Error('Data persediaan belum tersedia.');
+        const range = dashboardDateRange();
+        document.getElementById('dashboard-period-label').textContent = range.label;
+        const queryFactories = [
+            () => supabaseClient.from('sales')
+                .select('id, total_amount, platform_fee, created_at, sale_items(menu_name_at_time, quantity, unit_price)')
+                .gte('created_at', range.previousStartIso).lt('created_at', range.currentEndIso)
+                .order('created_at'),
+            () => supabaseClient.from('inventory_logs')
+                .select('id, created_at, qty, unit_price_at_time, notes, movement_reason, inventory_batch_consumptions(quantity, unit_cost)')
+                .eq('type', 'OUT').is('movement_reason', null)
+                .gte('created_at', range.previousStartIso).lt('created_at', range.currentEndIso)
+                .order('created_at'),
+            () => supabaseClient.from('inventory_logs')
+                .select('id, created_at, qty, unit_price_at_time, movement_reason, inventory_batch_consumptions(quantity, unit_cost)')
+                .eq('type', 'OUT').in('movement_reason', [
+                    'SPOILED', 'FOOD_WASTE_EXPIRED', 'FOOD_WASTE_DROPPED',
+                    'FOOD_WASTE_DOUGH_FAILED', 'STOCKTAKE_LOSS'
+                ]).gte('created_at', range.previousStartIso).lt('created_at', range.currentEndIso),
+            () => supabaseClient.from('inventory_logs')
+                .select('id, created_at, qty, unit_price_at_time')
+                .eq('type', 'IN').eq('movement_reason', 'STOCKTAKE_GAIN')
+                .gte('created_at', range.previousStartIso).lt('created_at', range.currentEndIso),
+            () => supabaseClient.from('operating_expenses')
+                .select('id, description, category, amount, payment_method, created_at, paid_at')
+                .gte('created_at', range.previousStartIso).lt('created_at', range.currentEndIso)
+                .order('created_at'),
+            () => supabaseClient.from('inventory_logs')
+                .select('id, qty, unit_price_at_time, created_at')
+                .eq('type', 'IN').eq('payment_method', 'CREDIT').is('paid_at', null).order('created_at'),
+            () => supabaseClient.from('operating_expenses')
+                .select('id, amount, created_at')
+                .eq('payment_method', 'CREDIT').is('paid_at', null).order('created_at')
+        ];
+        const results = await Promise.all(queryFactories.map(fetchAllReportRows));
+        if (requestId !== executiveDashboardRequest) return;
+        const failure = results.find(result => result.error);
+        if (failure) throw failure.error;
+        const [salesResult, cogsResult, wasteResult, gainsResult, expensesResult,
+            purchasesResult, unpaidExpensesResult] = results;
+        const sales = salesResult.data || [];
+        const cogs = cogsResult.data || [];
+        const waste = wasteResult.data || [];
+        const gains = gainsResult.data || [];
+        const expenses = expensesResult.data || [];
+        const currentStart = range.start.getTime();
+        const currentEnd = range.end.getTime();
+        const inCurrentPeriod = row => {
+            const timestamp = new Date(row.created_at).getTime();
+            return timestamp >= currentStart && timestamp < currentEnd;
+        };
+        const currentSales = sales.filter(inCurrentPeriod);
+        const previousSales = sales.filter(row => !inCurrentPeriod(row));
+        const currentCogs = cogs.filter(inCurrentPeriod);
+        const previousCogs = cogs.filter(row => !inCurrentPeriod(row));
+        const currentWaste = waste.filter(inCurrentPeriod);
+        const previousWaste = waste.filter(row => !inCurrentPeriod(row));
+        const currentGains = gains.filter(inCurrentPeriod);
+        const previousGains = gains.filter(row => !inCurrentPeriod(row));
+        const currentExpenses = expenses.filter(inCurrentPeriod);
+        const previousExpenses = expenses.filter(row => !inCurrentPeriod(row));
+
+        const metricFor = (periodSales, periodCogs, periodWaste, periodGains, periodExpenses) => {
+            const revenue = periodSales.reduce((sum, row) => sum + Number(row.total_amount), 0);
+            const platformFees = periodSales.reduce((sum, row) => sum + Number(row.platform_fee), 0);
+            const costOfGoods = periodCogs.reduce((sum, row) => sum + inventoryLogCost(row), 0);
+            const grossProfit = revenue - costOfGoods;
+            const wasteLoss = periodWaste.reduce((sum, row) => sum + inventoryLogCost(row), 0);
+            const stocktakeGain = periodGains.reduce((sum, row) =>
+                sum + Number(row.qty) * Number(row.unit_price_at_time), 0);
+            const operatingExpense = periodExpenses.reduce((sum, row) => sum + Number(row.amount), 0);
+            return {
+                revenue,
+                cogs: costOfGoods,
+                grossProfit,
+                netProfit: grossProfit - operatingExpense - wasteLoss - platformFees + stocktakeGain
+            };
+        };
+        const metrics = metricFor(currentSales, currentCogs, currentWaste, currentGains, currentExpenses);
+        const previousMetrics = metricFor(previousSales, previousCogs, previousWaste, previousGains, previousExpenses);
+        const inventoryValue = inventorySnapshot.reduce((sum, row) =>
+            sum + Number(row.stock_qty) * Number(row.unit_price), 0);
+        const unpaidPurchases = purchasesResult.data || [];
+        const unpaidExpenses = unpaidExpensesResult.data || [];
+        const totalPayables = unpaidPurchases.reduce((sum, row) =>
+            sum + Number(row.qty) * Number(row.unit_price_at_time), 0) +
+            unpaidExpenses.reduce((sum, row) => sum + Number(row.amount), 0);
+
+        renderExecutiveKpis(metrics, previousMetrics, range.label, inventoryValue, totalPayables);
+        const points = [];
+        for (let date = new Date(range.start); date < range.end; date.setDate(date.getDate() + 1)) {
+            points.push(localDateValue(new Date(date)));
+        }
+        const revenueByDate = new Map();
+        const cogsByDate = new Map();
+        const expenseByDate = new Map();
+        const platformFeeByDate = new Map();
+        const grossByDate = new Map();
+        const netByDate = new Map();
+        const menuTotals = new Map();
+        const expenseTotals = new Map();
+        currentSales.forEach(sale => {
+            const day = localDateValue(new Date(sale.created_at));
+            revenueByDate.set(day, (revenueByDate.get(day) || 0) + Number(sale.total_amount));
+            platformFeeByDate.set(day, (platformFeeByDate.get(day) || 0) + Number(sale.platform_fee));
+            (sale.sale_items || []).forEach(item => {
+                const name = item.menu_name_at_time || 'Menu tidak diketahui';
+                menuTotals.set(name, (menuTotals.get(name) || 0) + Number(item.quantity) * Number(item.unit_price));
+            });
+        });
+        currentCogs.forEach(row => {
+            const day = localDateValue(new Date(row.created_at));
+            cogsByDate.set(day, (cogsByDate.get(day) || 0) + inventoryLogCost(row));
+        });
+        currentExpenses.forEach(row => {
+            const day = localDateValue(new Date(row.created_at));
+            expenseByDate.set(day, (expenseByDate.get(day) || 0) + Number(row.amount));
+            expenseTotals.set(row.category, (expenseTotals.get(row.category) || 0) + Number(row.amount));
+        });
+        currentWaste.forEach(row => {
+            const day = localDateValue(new Date(row.created_at));
+            expenseByDate.set(day, (expenseByDate.get(day) || 0) + inventoryLogCost(row));
+        });
+        currentGains.forEach(row => {
+            const day = localDateValue(new Date(row.created_at));
+            expenseByDate.set(day, (expenseByDate.get(day) || 0) - Number(row.qty) * Number(row.unit_price_at_time));
+        });
+        points.forEach(day => {
+            grossByDate.set(day, (revenueByDate.get(day) || 0) - (cogsByDate.get(day) || 0));
+            netByDate.set(day, (grossByDate.get(day) || 0) -
+                (expenseByDate.get(day) || 0) - (platformFeeByDate.get(day) || 0));
+        });
+        const dateLabel = day => new Date(`${day}T00:00:00`).toLocaleDateString('id-ID', { day: '2-digit', month: 'short' });
+        const hasSales = currentSales.length > 0;
+        const hasProfitData = currentSales.length > 0 || currentCogs.length > 0 || currentExpenses.length > 0 || currentWaste.length > 0;
+        document.getElementById('executive-sales-chart').classList.toggle('hidden', !hasSales);
+        document.getElementById('executive-sales-empty').classList.toggle('hidden', hasSales);
+        renderExecutiveChart('executive-sales-chart', 'line', {
+            labels: points.map(dateLabel),
+            datasets: [{ label: 'Penjualan', data: points.map(day => revenueByDate.get(day) || 0), borderColor: '#dc3e34', backgroundColor: 'rgba(220,62,52,.12)', fill: true, tension: .3, pointRadius: points.length > 20 ? 0 : 3 }]
+        }, executiveLineChartOptions());
+        document.getElementById('executive-profit-chart').classList.toggle('hidden', !hasProfitData);
+        document.getElementById('executive-profit-empty').classList.toggle('hidden', hasProfitData);
+        renderExecutiveChart('executive-profit-chart', 'line', {
+            labels: points.map(dateLabel),
+            datasets: [
+                { label: 'Laba kotor', data: points.map(day => grossByDate.get(day) || 0), borderColor: '#dc3e34', tension: .3, pointRadius: points.length > 20 ? 0 : 3 },
+                { label: 'Laba bersih', data: points.map(day => netByDate.get(day) || 0), borderColor: '#475569', tension: .3, pointRadius: points.length > 20 ? 0 : 3 }
+            ]
+        }, executiveLineChartOptions());
+
+        const menuEntries = [...menuTotals.entries()].sort((a,b)=>b[1]-a[1]);
+        const expenseEntries = [...expenseTotals.entries()].sort((a,b)=>b[1]-a[1]);
+        renderExecutiveDoughnut('executive-menu-chart', 'executive-menu-empty', menuEntries, 'Penjualan');
+        renderExecutiveDoughnut('executive-expense-chart', 'executive-expense-empty', expenseEntries, 'Biaya');
+        renderExecutiveWarnings(inventorySnapshot, expiringBatchSnapshot, unpaidPurchases, unpaidExpenses, metrics, previousMetrics);
+    } catch (error) {
+        if (requestId !== executiveDashboardRequest) return;
+        console.error('Gagal memuat executive dashboard:', error);
+        setExecutiveDashboardError(error.message);
+    }
+}
+
+function executiveLineChartOptions() {
+    return {
+        responsive: true,
+        maintainAspectRatio: false,
+        interaction: { mode: 'index', intersect: false },
+        plugins: {
+            legend: { position: 'bottom', labels: { usePointStyle: true, boxWidth: 8, padding: 18 } },
+            tooltip: { callbacks: { title: items => items.length ? items[0].label : '', label: item => `${item.dataset.label}: Rp ${formatRp(item.raw)}` } }
+        },
+        scales: {
+            y: { beginAtZero: true, ticks: { callback: value => `Rp ${formatRp(value)}` }, grid: { color: 'rgba(148,163,184,.16)' } },
+            x: { grid: { display: false }, ticks: { autoSkip: true, maxTicksLimit: 10, maxRotation: 0 } }
+        }
+    };
+}
+
+function renderExecutiveDoughnut(canvasId, emptyId, entries, label) {
+    const hasData = entries.length > 0;
+    document.getElementById(canvasId).classList.toggle('hidden', !hasData);
+    document.getElementById(emptyId).classList.toggle('hidden', hasData);
+    if (!hasData) {
+        if (executiveCharts[canvasId]) {
+            executiveCharts[canvasId].destroy();
+            delete executiveCharts[canvasId];
+        }
+        return;
+    }
+    renderExecutiveChart(canvasId, 'doughnut', {
+        labels: entries.map(([name]) => name),
+        datasets: [{ label, data: entries.map(([, value]) => value), backgroundColor: ['#dc3e34', '#f59e0b', '#475569', '#f87171', '#94a3b8', '#fbbf24', '#64748b'], borderColor: '#fff', borderWidth: 3 }]
+    }, {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+            legend: { position: 'right', labels: { usePointStyle: true, boxWidth: 8, padding: 14 } },
+            tooltip: { callbacks: { label: item => `${item.label}: Rp ${formatRp(item.raw)}` } }
+        },
+        cutout: '62%'
+    });
+}
+
 async function loadFinancialReport() {
     const profitLossBody = document.getElementById('profit-loss-table');
     const cashFlowBody = document.getElementById('cash-flow-table');
@@ -1378,6 +1803,23 @@ document.getElementById('financial-report-apply').addEventListener('click', load
 document.getElementById('financial-report-refresh').addEventListener('click', loadFinancialReport);
 document.getElementById('menu-engineering-refresh').addEventListener('click', loadMenuEngineering);
 
+const dashboardPeriodSelect = document.getElementById('dashboard-period');
+const dashboardCustomDates = [
+    document.getElementById('dashboard-start-date'),
+    document.getElementById('dashboard-end-date')
+];
+dashboardPeriodSelect.addEventListener('change', () => {
+    const isCustom = dashboardPeriodSelect.value === 'custom';
+    dashboardCustomDates.forEach(input => input.classList.toggle('hidden', !isCustom));
+    if (!isCustom) loadExecutiveDashboard();
+});
+document.getElementById('dashboard-apply').addEventListener('click', loadExecutiveDashboard);
+document.getElementById('executive-actions').addEventListener('click', event => {
+    const button = event.target.closest('.quick-action');
+    if (!button) return;
+    navigateToPage(button.dataset.page, button.dataset.focus || '');
+});
+
 document.getElementById('expense-form').addEventListener('submit', async (event) => {
     event.preventDefault();
     const form = event.currentTarget;
@@ -1437,6 +1879,9 @@ loadJournalAndAnalysis();
 loadSalesJournal();
 loadTodaySalesTotal();
 renderPosCart();
+const dashboardToday = localDateValue(new Date());
+document.getElementById('dashboard-start-date').value = dashboardToday;
+document.getElementById('dashboard-end-date').value = dashboardToday;
 const reportToday = new Date();
 document.getElementById('report-start-date').value = localDateValue(new Date(reportToday.getFullYear(), reportToday.getMonth(), 1));
 document.getElementById('report-end-date').value = localDateValue(reportToday);

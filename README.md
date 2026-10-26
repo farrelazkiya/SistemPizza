@@ -71,6 +71,10 @@ Sistem ini tidak hanya mencatat data, tetapi juga memiliki fungsi analitik dan p
 ## ✨ Antarmuka Enterprise
 
 - Navigasi sidebar merah tomat dengan ikon konsisten, menu terkelompok (Dashboard, Operasional, Persediaan, Keuangan), penanda halaman aktif, breadcrumb dinamis, tanggal/waktu lokal, dan status koneksi Supabase.
+- Executive Dashboard menyediakan filter hari ini, tujuh hari, bulan ini, bulan sebelumnya, dan rentang kustom; KPI penjualan, HPP, laba kotor/bersih, persediaan, serta utang dilengkapi perbandingan periode sebelumnya jika tersedia.
+- Grafik dashboard menampilkan tren penjualan dan profitabilitas harian, penjualan per menu, serta biaya per kategori. Peringatan merangkum stok minimum, batch yang mendekati kedaluwarsa, kewajiban belum dibayar, dan penurunan penjualan/margin.
+- Saldo kas/bank dan piutang marketplace ditandai tidak tersedia selama data saldo awal atau settlement belum dicatat oleh sistem; keduanya tidak ditampilkan sebagai angka nol atau estimasi yang seolah-olah pasti.
+- Aksi cepat mengarahkan pengguna ke kasir, pembelian, pencatatan biaya, resep, stok opname, dan laporan keuangan.
 - Ringkasan KPI untuk nilai persediaan, HPP hari ini, dan penjualan hari ini; indikator restock dan kedaluwarsa ditampilkan sebagai banner peringatan.
 - Komponen kartu, tabel, badge, input, dan tombol menggunakan gaya responsif; tabel lebar dapat digulir secara horizontal pada layar kecil, dengan fokus aksesibel serta dukungan pengurangan animasi.
 - Toast non-blocking memberi konfirmasi untuk aksi penting, termasuk penambahan item kasir dan penyimpanan transaksi.

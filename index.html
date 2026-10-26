@@ -42,7 +42,7 @@
         <!-- KONTEN KANAN -->
         <main class="main-content">
             <header class="topbar">
-                <div class="breadcrumb"><span>Workspace</span><i data-lucide="chevron-right"></i><strong id="current-page-title">Dashboard Persediaan</strong></div>
+                <div class="breadcrumb"><span>Workspace</span><i data-lucide="chevron-right"></i><strong id="current-page-title">Executive Dashboard</strong></div>
                 <div class="topbar-meta">
                     <span class="topbar-clock"><i data-lucide="clock-3"></i><span id="live-datetime">Memuat waktu...</span></span>
                     <span id="database-status" class="connection-badge is-checking"><span class="connection-dot"></span><span>Memeriksa database</span></span>
@@ -53,10 +53,80 @@
             <section id="page-dashboard" class="page-section active">
                 <div class="header-title flex-between">
                     <div>
-                        <h1>Dashboard Persediaan</h1>
-                        <p>Ringkasan aset, analisis komposisi, dan manajemen kontrol stok.</p>
+                        <h1>Executive Dashboard</h1>
+                        <p>Ringkasan kinerja, profitabilitas, dan risiko operasional bisnis.</p>
                     </div>
                 </div>
+
+                <section class="executive-dashboard" aria-label="Ringkasan eksekutif">
+                    <div class="card executive-filter-card">
+                        <div>
+                            <label for="dashboard-period">Periode analisis</label>
+                            <p id="dashboard-period-label" class="report-note">Memuat periode...</p>
+                        </div>
+                        <div class="executive-filter-controls">
+                            <select id="dashboard-period" aria-label="Pilih periode dashboard">
+                                <option value="today">Hari ini</option>
+                                <option value="last7">7 hari terakhir</option>
+                                <option value="month">Bulan ini</option>
+                                <option value="previous_month">Bulan sebelumnya</option>
+                                <option value="custom">Rentang kustom</option>
+                            </select>
+                            <input type="date" id="dashboard-start-date" aria-label="Tanggal awal dashboard" class="hidden">
+                            <input type="date" id="dashboard-end-date" aria-label="Tanggal akhir dashboard" class="hidden">
+                            <button type="button" class="btn" id="dashboard-apply">Tampilkan</button>
+                        </div>
+                    </div>
+
+                    <div id="executive-kpis" class="executive-kpi-grid" aria-live="polite">
+                        <div class="card executive-kpi skeleton-card"></div><div class="card executive-kpi skeleton-card"></div>
+                        <div class="card executive-kpi skeleton-card"></div><div class="card executive-kpi skeleton-card"></div>
+                        <div class="card executive-kpi skeleton-card"></div><div class="card executive-kpi skeleton-card"></div>
+                        <div class="card executive-kpi skeleton-card"></div><div class="card executive-kpi skeleton-card"></div>
+                    </div>
+
+                    <div class="executive-chart-grid">
+                        <article class="card executive-chart-card">
+                            <div class="executive-card-heading"><div><h2>Tren Penjualan</h2><p class="report-note">Omzet harian selama periode terpilih</p></div></div>
+                            <div class="executive-chart-wrap"><canvas id="executive-sales-chart" aria-label="Grafik tren penjualan harian"></canvas></div>
+                            <p id="executive-sales-empty" class="chart-empty hidden">Belum ada transaksi penjualan pada periode ini.</p>
+                        </article>
+                        <article class="card executive-chart-card">
+                            <div class="executive-card-heading"><div><h2>Tren Profitabilitas</h2><p class="report-note">Laba kotor dan laba bersih harian</p></div></div>
+                            <div class="executive-chart-wrap"><canvas id="executive-profit-chart" aria-label="Grafik tren laba kotor dan bersih"></canvas></div>
+                            <p id="executive-profit-empty" class="chart-empty hidden">Belum ada data profitabilitas pada periode ini.</p>
+                        </article>
+                        <article class="card executive-chart-card">
+                            <div class="executive-card-heading"><div><h2>Komposisi Penjualan Menu</h2><p class="report-note">Nilai penjualan per menu</p></div></div>
+                            <div class="executive-chart-wrap executive-doughnut-wrap"><canvas id="executive-menu-chart" aria-label="Komposisi penjualan berdasarkan menu"></canvas></div>
+                            <p id="executive-menu-empty" class="chart-empty hidden">Belum ada penjualan per menu pada periode ini.</p>
+                        </article>
+                        <article class="card executive-chart-card">
+                            <div class="executive-card-heading"><div><h2>Biaya Operasional</h2><p class="report-note">Pengeluaran menurut kategori</p></div></div>
+                            <div class="executive-chart-wrap executive-doughnut-wrap"><canvas id="executive-expense-chart" aria-label="Komposisi biaya operasional"></canvas></div>
+                            <p id="executive-expense-empty" class="chart-empty hidden">Belum ada biaya operasional pada periode ini.</p>
+                        </article>
+                    </div>
+
+                    <article class="card executive-alert-card">
+                        <div class="executive-card-heading"><div><h2>Peringatan & Tindak Lanjut</h2><p class="report-note">Kondisi persediaan dan kewajiban saat ini serta perubahan periode</p></div><span id="executive-alert-count" class="badge badge-normal">Memuat</span></div>
+                        <div id="executive-alerts" class="executive-alert-list"><div class="executive-loading"><span class="loading-spinner"></span>Memuat peringatan operasional...</div></div>
+                    </article>
+
+                    <article id="executive-actions" class="card executive-actions-card">
+                        <div class="executive-card-heading"><div><h2>Aksi Cepat</h2><p class="report-note">Langsung menuju pekerjaan operasional yang sering digunakan</p></div></div>
+                        <div class="executive-quick-actions">
+                            <button type="button" class="quick-action" data-page="page-kasir"><i data-lucide="shopping-bag"></i><span>Transaksi penjualan baru</span></button>
+                            <button type="button" class="quick-action" data-page="page-transaksi"><i data-lucide="package-plus"></i><span>Tambah pembelian bahan</span></button>
+                            <button type="button" class="quick-action" data-page="page-laporan" data-focus="expense-form"><i data-lucide="receipt-text"></i><span>Catat biaya operasional</span></button>
+                            <button type="button" class="quick-action" data-page="page-resep"><i data-lucide="notebook-tabs"></i><span>Kelola resep</span></button>
+                            <button type="button" class="quick-action" data-page="page-dashboard" data-focus="stocktake-form"><i data-lucide="clipboard-check"></i><span>Stok opname</span></button>
+                            <button type="button" class="quick-action" data-page="page-laporan"><i data-lucide="chart-no-axes-combined"></i><span>Lihat laporan keuangan</span></button>
+                        </div>
+                    </article>
+                </section>
+
+                <div class="inventory-section-heading"><div><span class="eyebrow">OPERASIONAL</span><h2>Kontrol Persediaan</h2><p>Stok, nilai bahan baku, food waste, dan stok opname.</p></div></div>
 
                 <!-- Peringatan Dini Stok Kritis -->
                 <div id="alert-container" class="alert-box hidden">
