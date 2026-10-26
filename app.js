@@ -12,8 +12,51 @@ const inventoryLogCost = (log) => {
 
 // Variabel Global untuk menyimpan instance ChartJS agar bisa di-update
 let inventoryChartInstance = null;
+let menuEngineeringChartInstance = null;
 let menuItems = [];
 let posCart = [];
+
+function showToast(message, type = 'success') {
+    const region = document.getElementById('toast-region');
+    const toast = document.createElement('div');
+    const iconName = type === 'error' ? 'circle-x' : type === 'warning' ? 'triangle-alert' : 'circle-check';
+    toast.className = `toast${type === 'success' ? '' : ` toast-${type}`}`;
+    const icon = document.createElement('i');
+    icon.setAttribute('data-lucide', iconName);
+    const text = document.createElement('span');
+    text.textContent = message;
+    toast.append(icon, text);
+    region.appendChild(toast);
+    if (window.lucide) window.lucide.createIcons();
+    window.setTimeout(() => {
+        toast.classList.add('is-leaving');
+        toast.addEventListener('animationend', () => toast.remove(), { once: true });
+    }, 3600);
+}
+
+function setDatabaseStatus(status) {
+    const badge = document.getElementById('database-status');
+    const label = status === 'connected'
+        ? 'Online / Connected'
+        : status === 'offline'
+            ? 'Tidak ada koneksi'
+            : status === 'error'
+                ? 'Database bermasalah'
+                : 'Memeriksa database';
+    badge.className = `connection-badge ${status === 'connected' ? '' : `is-${status}`}`.trim();
+    badge.lastElementChild.textContent = label;
+}
+
+function updateLiveDateTime() {
+    document.getElementById('live-datetime').textContent = new Intl.DateTimeFormat('id-ID', {
+        weekday: 'short',
+        day: '2-digit',
+        month: 'short',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit'
+    }).format(new Date());
+}
 
 function escapeHtml(value) {
     return String(value).replace(/[&<>"']/g, character => ({
@@ -27,9 +70,12 @@ function escapeHtml(value) {
 
 function switchPage(pageId, element) {
     document.querySelectorAll('.page-section').forEach(page => page.classList.remove('active'));
-    document.getElementById(pageId).classList.add('active');
+    const activePage = document.getElementById(pageId);
+    activePage.classList.add('active');
     document.querySelectorAll('.sidebar-menu li').forEach(li => li.classList.remove('active'));
     element.classList.add('active');
+    document.getElementById('current-page-title').textContent = activePage.querySelector('h1')?.textContent || 'Workspace';
+    if (pageId === 'page-laporan') loadMenuEngineering();
 }
 
 function toggleDynamicFields() {
@@ -57,14 +103,19 @@ function toggleDynamicFields() {
 }
 
 async function loadSuppliersAndMenus() {
-    const { data: menus, error: menuError } = await supabaseClient.from('menu_items').select('*');
+    const { data: menus, error: menuError } = await supabaseClient.from('menu_items')
+        .select('id, name, selling_price')
+        .eq('is_available', true)
+        .order('name');
     if (menuError) {
+        setDatabaseStatus(navigator.onLine ? 'error' : 'offline');
         console.error('Gagal memuat menu:', menuError);
         document.getElementById('pos-menu-select').innerHTML = '<option value="">Gagal memuat menu</option>';
         document.getElementById('recipe-menu-select').innerHTML = '<option value="">Gagal memuat menu</option>';
         alert(`Gagal memuat menu: ${menuError.message}`);
         return;
     }
+    setDatabaseStatus('connected');
 
     menuItems = menus || [];
     const posMenuSelect = document.getElementById('pos-menu-select');
@@ -138,7 +189,8 @@ function renderPosCart() {
     document.getElementById('pos-checkout-button').disabled = posCart.length === 0;
 
     if (posCart.length === 0) {
-        cartBody.innerHTML = '<tr><td colspan="5">Keranjang masih kosong.</td></tr>';
+        cartBody.innerHTML = '<tr><td colspan="5" class="empty-state"><div class="empty-state-content"><i data-lucide="shopping-basket"></i><strong>Keranjang masih kosong</strong><span>Pilih menu pizza untuk mulai menambahkan pesanan.</span></div></td></tr>';
+        if (window.lucide) window.lucide.createIcons();
         return;
     }
 
@@ -151,6 +203,24 @@ function renderPosCart() {
             <td><button type="button" class="btn btn-remove" data-cart-index="${index}">Hapus</button></td>
         </tr>
     `).join('');
+    if (window.lucide) window.lucide.createIcons();
+}
+
+async function loadTodaySalesTotal() {
+    const now = new Date();
+    const start = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();
+    const end = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1).toISOString();
+    const { data, error } = await supabaseClient.from('sales')
+        .select('total_amount')
+        .gte('created_at', start)
+        .lt('created_at', end);
+    if (error) {
+        console.error('Gagal memuat total penjualan hari ini:', error);
+        showToast(`Total penjualan hari ini gagal dimuat: ${error.message}`, 'error');
+        return;
+    }
+    const total = (data || []).reduce((sum, sale) => sum + Number(sale.total_amount), 0);
+    document.getElementById('today-sales-value').textContent = `Rp ${formatRp(total)}`;
 }
 
 async function loadSalesJournal() {
@@ -232,6 +302,250 @@ async function loadMenuRecipe() {
             <td><button type="button" class="btn btn-remove" data-recipe-ingredient="${item.ingredient_id}">Hapus</button></td>
         </tr>
     `).join('');
+}
+
+function fifoRecipeCost(recipeRows, batchesByIngredient, ingredientsById) {
+    const remainingByBatch = new Map();
+    let totalCost = 0;
+
+    for (const recipe of recipeRows) {
+        const ingredientId = Number(recipe.ingredient_id);
+        let requiredQty = Number(recipe.qty_per_menu);
+        const batches = batchesByIngredient.get(ingredientId) || [];
+
+        for (const batch of batches) {
+            const remainingQty = remainingByBatch.has(batch.id)
+                ? remainingByBatch.get(batch.id)
+                : Number(batch.quantity_remaining);
+            if (remainingQty <= 0 || requiredQty <= 0) continue;
+            const usedQty = Math.min(requiredQty, remainingQty);
+            totalCost += usedQty * Number(batch.unit_cost);
+            requiredQty -= usedQty;
+            remainingByBatch.set(batch.id, remainingQty - usedQty);
+        }
+
+        if (requiredQty > 0) {
+            const ingredient = ingredientsById.get(ingredientId);
+            if (!ingredient) return null;
+            totalCost += requiredQty * Number(ingredient.unit_price);
+        }
+    }
+
+    return totalCost;
+}
+
+function median(values) {
+    if (values.length === 0) return 0;
+    const sorted = [...values].sort((left, right) => left - right);
+    const middle = Math.floor(sorted.length / 2);
+    return sorted.length % 2 === 0
+        ? (sorted[middle - 1] + sorted[middle]) / 2
+        : sorted[middle];
+}
+
+async function loadMenuEngineering() {
+    const tableBody = document.getElementById('menu-engineering-table');
+    const refreshButton = document.getElementById('menu-engineering-refresh');
+    tableBody.innerHTML = '<tr><td colspan="8">Memuat analisis menu...</td></tr>';
+    refreshButton.disabled = true;
+
+    try {
+        const today = new Date();
+        const startDate = new Date(today.getFullYear(), today.getMonth(), today.getDate() - 29);
+        const endDate = new Date(today.getFullYear(), today.getMonth(), today.getDate() + 1);
+        const start = startDate.toISOString();
+        const end = endDate.toISOString();
+        const [menuResult, recipeResult, batchResult, salesResult, cogsResult] = await Promise.all([
+            supabaseClient.from('menu_items')
+                .select('id, name, selling_price')
+                .eq('is_available', true)
+                .order('name'),
+            fetchAllReportRows(() => supabaseClient.from('menu_recipes')
+                .select('menu_item_id, ingredient_id, qty_per_menu, ingredients(id, name, unit, unit_price)')
+                .order('menu_item_id')),
+            fetchAllReportRows(() => supabaseClient.from('inventory_batches')
+                .select('id, ingredient_id, expiry_date, received_at, quantity_remaining, unit_cost')
+                .gt('quantity_remaining', 0)
+                .order('expiry_date', { ascending: true, nullsFirst: false })
+                .order('received_at', { ascending: true })
+                .order('id', { ascending: true })),
+            fetchAllReportRows(() => supabaseClient.from('sales')
+                .select('id, sale_items(menu_item_id, quantity)')
+                .gte('created_at', start)
+                .lt('created_at', end)),
+            fetchAllReportRows(() => supabaseClient.from('inventory_logs')
+                .select('menu_item_id, qty, unit_price_at_time, notes, inventory_batch_consumptions(quantity, unit_cost)')
+                .eq('type', 'OUT')
+                .is('movement_reason', null)
+                .not('menu_item_id', 'is', null)
+                .like('notes', 'Penjualan #%')
+                .gte('created_at', start)
+                .lt('created_at', end))
+        ]);
+
+        if (menuResult.error) throw menuResult.error;
+        for (const result of [recipeResult, batchResult, salesResult, cogsResult]) {
+            if (result.error) throw result.error;
+        }
+
+        const menus = menuResult.data || [];
+        const recipeRows = recipeResult.data || [];
+        const batchesByIngredient = new Map();
+        (batchResult.data || []).forEach(batch => {
+            const ingredientId = Number(batch.ingredient_id);
+            if (!batchesByIngredient.has(ingredientId)) batchesByIngredient.set(ingredientId, []);
+            batchesByIngredient.get(ingredientId).push(batch);
+        });
+        const recipesByMenu = new Map();
+        const ingredientsById = new Map();
+        recipeRows.forEach(recipe => {
+            const menuId = Number(recipe.menu_item_id);
+            if (!recipesByMenu.has(menuId)) recipesByMenu.set(menuId, []);
+            recipesByMenu.get(menuId).push(recipe);
+            if (recipe.ingredients) ingredientsById.set(Number(recipe.ingredient_id), recipe.ingredients);
+        });
+
+        const soldUnitsByMenu = new Map();
+        const saleMenuQuantities = new Map();
+        (salesResult.data || []).forEach(sale => {
+            const menuQuantities = new Map();
+            (sale.sale_items || []).forEach(item => {
+                if (item.menu_item_id === null) return;
+                const menuId = Number(item.menu_item_id);
+                const quantity = Number(item.quantity);
+                soldUnitsByMenu.set(menuId, (soldUnitsByMenu.get(menuId) || 0) + quantity);
+                menuQuantities.set(menuId, (menuQuantities.get(menuId) || 0) + quantity);
+            });
+            saleMenuQuantities.set(Number(sale.id), menuQuantities);
+        });
+        const actualCostByMenu = new Map();
+        const actualUnitsByMenu = new Map();
+        const coveredSaleMenus = new Set();
+        (cogsResult.data || []).forEach(log => {
+            const saleIdMatch = log.notes?.match(/^Penjualan #(\d+)$/);
+            if (!saleIdMatch) return;
+            const saleId = Number(saleIdMatch[1]);
+            const menuId = Number(log.menu_item_id);
+            actualCostByMenu.set(menuId, (actualCostByMenu.get(menuId) || 0) + inventoryLogCost(log));
+            coveredSaleMenus.add(`${saleId}:${menuId}`);
+        });
+        coveredSaleMenus.forEach(key => {
+            const [saleId, menuId] = key.split(':').map(Number);
+            const quantity = saleMenuQuantities.get(saleId)?.get(menuId) || 0;
+            actualUnitsByMenu.set(menuId, (actualUnitsByMenu.get(menuId) || 0) + quantity);
+        });
+
+        const medianUnitsSold = median(menus.map(menu => soldUnitsByMenu.get(Number(menu.id)) || 0));
+        const rows = menus.map(menu => {
+            const menuId = Number(menu.id);
+            const soldUnits = soldUnitsByMenu.get(menuId) || 0;
+            const recipes = recipesByMenu.get(menuId) || [];
+            const actualHpp = actualCostByMenu.get(menuId);
+            const actualUnits = actualUnitsByMenu.get(menuId) || 0;
+            const hppPerPortion = actualUnits > 0 && actualHpp !== undefined
+                ? actualHpp / actualUnits
+                : recipes.length > 0
+                    ? fifoRecipeCost(recipes, batchesByIngredient, ingredientsById)
+                    : null;
+            const sellingPrice = Number(menu.selling_price);
+            const foodCostPercent = hppPerPortion !== null && sellingPrice > 0
+                ? (hppPerPortion / sellingPrice) * 100
+                : null;
+            const isHighSelling = soldUnits > medianUnitsSold;
+            let category;
+            if (foodCostPercent === null) category = 'NO_RECIPE';
+            else if (foodCostPercent < 30) category = isHighSelling ? 'STAR' : 'PUZZLE';
+            else if (foodCostPercent > 35) category = isHighSelling ? 'PLOWHORSE' : 'DOG';
+            else category = 'NORMAL';
+
+            return {
+                id: menuId,
+                name: menu.name,
+                sellingPrice,
+                soldUnits,
+                hppPerPortion,
+                foodCostPercent,
+                category,
+                idealMin: hppPerPortion === null ? null : Math.ceil(hppPerPortion / 0.32 - 1e-8),
+                idealMax: hppPerPortion === null ? null : Math.floor(hppPerPortion / 0.28 + 1e-8),
+                targetPrice: hppPerPortion === null ? null : Math.round(hppPerPortion / 0.30)
+            };
+        });
+
+        const categoryLabels = {
+            STAR: ['STAR', 'badge-star'],
+            PLOWHORSE: ['PLOWHORSE', 'badge-plowhorse'],
+            PUZZLE: ['PUZZLE', 'badge-puzzle'],
+            DOG: ['DOG', 'badge-dog'],
+            NORMAL: ['NORMAL', 'badge-normal'],
+            NO_RECIPE: ['RESEP BELUM LENGKAP', '']
+        };
+        tableBody.innerHTML = rows.length
+            ? rows.map(row => {
+                const [label, badgeClass] = categoryLabels[row.category];
+                return `
+                    <tr>
+                        <td>${escapeHtml(row.name)}</td>
+                        <td>${row.hppPerPortion === null ? '-' : `Rp ${formatRp(row.hppPerPortion)}`}</td>
+                        <td>Rp ${formatRp(row.sellingPrice)}</td>
+                        <td>${row.foodCostPercent === null ? '-' : `${row.foodCostPercent.toFixed(1)}%`}</td>
+                        <td>${formatRp(row.soldUnits)}</td>
+                        <td><span class="badge ${badgeClass}">${label}</span></td>
+                        <td>${row.idealMin === null ? '-' : `Rp ${formatRp(row.idealMin)} – Rp ${formatRp(row.idealMax)}`}</td>
+                        <td>${row.targetPrice === null ? '-' : `Rp ${formatRp(row.targetPrice)}`}</td>
+                    </tr>
+                `;
+            }).join('')
+            : '<tr><td colspan="8">Belum ada menu untuk dianalisis.</td></tr>';
+
+        renderMenuEngineeringChart(rows.filter(row => row.hppPerPortion !== null));
+    } catch (error) {
+        console.error('Gagal memuat analisis menu engineering:', error);
+        tableBody.innerHTML = '<tr><td colspan="8">Analisis menu gagal dimuat.</td></tr>';
+        alert(`Gagal memuat analisis menu engineering: ${error.message}`);
+    } finally {
+        refreshButton.disabled = false;
+    }
+}
+
+function renderMenuEngineeringChart(rows) {
+    const canvas = document.getElementById('menu-engineering-chart');
+    if (menuEngineeringChartInstance) menuEngineeringChartInstance.destroy();
+    menuEngineeringChartInstance = new Chart(canvas.getContext('2d'), {
+        type: 'bar',
+        data: {
+            labels: rows.map(row => row.name),
+            datasets: [
+                {
+                    label: 'Harga Jual Saat Ini',
+                    data: rows.map(row => row.sellingPrice),
+                    backgroundColor: '#94a3b8'
+                },
+                {
+                    label: 'Harga Target (Food Cost 30%)',
+                    data: rows.map(row => row.targetPrice),
+                    backgroundColor: '#10b981'
+                }
+            ]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            scales: {
+                y: {
+                    beginAtZero: true,
+                    ticks: { callback: value => `Rp ${formatRp(value)}` }
+                }
+            },
+            plugins: {
+                tooltip: {
+                    callbacks: {
+                        label: context => `${context.dataset.label}: Rp ${formatRp(context.raw)}`
+                    }
+                }
+            }
+        }
+    });
 }
 
 function renderChart(labels, dataValues) {
@@ -348,6 +662,7 @@ async function loadInventory() {
     });
 
     document.getElementById('total-asset-value').innerText = `Rp ${formatRp(totalAssetRupiah)}`;
+    alertContainer.classList.toggle('has-critical-alert', hasAlerts);
     if (hasAlerts) alertContainer.classList.remove('hidden'); else alertContainer.classList.add('hidden');
 
     const warningDate = new Date();
@@ -530,7 +845,7 @@ document.getElementById('food-waste-form').addEventListener('submit', async (eve
             loadJournalAndAnalysis(document.getElementById('filter-ingredient').value),
             loadFinancialReport()
         ]);
-        alert('Food waste berhasil dicatat dan jurnal beban kerusakan persediaan telah dibuat.');
+        showToast('Food waste berhasil dicatat dan jurnal beban kerusakan persediaan telah dibuat.');
     } catch (error) {
         console.error('Gagal mencatat food waste:', error);
         alert(`Food waste gagal dicatat: ${error.message}`);
@@ -582,7 +897,7 @@ document.getElementById('stocktake-form').addEventListener('submit', async (even
             loadJournalAndAnalysis(document.getElementById('filter-ingredient').value),
             loadFinancialReport()
         ]);
-        alert(`Stok opname berhasil disimpan. ${adjustmentCount} penyesuaian jurnal dibuat.`);
+        showToast(`Stok opname berhasil disimpan. ${adjustmentCount} penyesuaian jurnal dibuat.`);
     } catch (error) {
         console.error('Gagal menyimpan stok opname:', error);
         alert(`Stok opname gagal disimpan: ${error.message}`);
@@ -637,7 +952,7 @@ document.getElementById('transaction-form').addEventListener('submit', async (e)
         });
         if (error) throw error;
 
-        alert("✅ Transaksi Jurnal Berhasil Disimpan!");
+        showToast('Transaksi jurnal berhasil disimpan dan stok telah diperbarui.');
         document.getElementById('transaction-form').reset();
         toggleDynamicFields();
         await loadIngredientSuppliers();
@@ -688,6 +1003,7 @@ document.getElementById('pos-add-form').addEventListener('submit', (e) => {
 
     document.getElementById('pos-quantity').value = '1';
     renderPosCart();
+    showToast(`${menu.name} ditambahkan ke keranjang.`, 'success');
 });
 
 document.getElementById('pos-cart-table').addEventListener('click', (e) => {
@@ -728,9 +1044,10 @@ document.getElementById('pos-checkout-button').addEventListener('click', async (
             loadInventory(),
             loadJournalAndAnalysis(document.getElementById('filter-ingredient').value),
             loadSalesJournal(),
-            loadFinancialReport()
+            loadFinancialReport(),
+            loadTodaySalesTotal()
         ]);
-        alert(`Penjualan #${saleId} berhasil disimpan dan stok resep telah diperbarui.`);
+        showToast(`Penjualan #${saleId} berhasil disimpan dan stok resep telah diperbarui.`);
     } catch (error) {
         console.error('Gagal menyimpan penjualan:', error);
         alert(`Penjualan gagal disimpan: ${error.message}`);
@@ -1059,6 +1376,7 @@ async function loadFinancialReport() {
 
 document.getElementById('financial-report-apply').addEventListener('click', loadFinancialReport);
 document.getElementById('financial-report-refresh').addEventListener('click', loadFinancialReport);
+document.getElementById('menu-engineering-refresh').addEventListener('click', loadMenuEngineering);
 
 document.getElementById('expense-form').addEventListener('submit', async (event) => {
     event.preventDefault();
@@ -1075,7 +1393,7 @@ document.getElementById('expense-form').addEventListener('submit', async (event)
         if (error) throw error;
         form.reset();
         await loadFinancialReport();
-        alert('Biaya operasional berhasil dicatat.');
+        showToast('Biaya operasional berhasil dicatat.');
     } catch (error) {
         console.error('Gagal mencatat biaya operasional:', error);
         alert(`Biaya operasional gagal dicatat: ${error.message}`);
@@ -1096,7 +1414,7 @@ document.getElementById('payables-table').addEventListener('click', async (event
         });
         if (error) throw error;
         await loadFinancialReport();
-        alert('Pembayaran utang berhasil dicatat.');
+        showToast('Pembayaran utang berhasil dicatat.');
     } catch (error) {
         console.error('Gagal mencatat pembayaran utang:', error);
         alert(`Pembayaran gagal dicatat: ${error.message}`);
@@ -1105,10 +1423,19 @@ document.getElementById('payables-table').addEventListener('click', async (event
 });
 
 // Inisialisasi awal saat web dibuka
+if (window.lucide) window.lucide.createIcons();
+updateLiveDateTime();
+window.setInterval(updateLiveDateTime, 60_000);
+window.addEventListener('online', () => {
+    setDatabaseStatus('checking');
+    loadSuppliersAndMenus();
+});
+window.addEventListener('offline', () => setDatabaseStatus('offline'));
 loadSuppliersAndMenus();
 loadInventory();
 loadJournalAndAnalysis();
 loadSalesJournal();
+loadTodaySalesTotal();
 renderPosCart();
 const reportToday = new Date();
 document.getElementById('report-start-date').value = localDateValue(new Date(reportToday.getFullYear(), reportToday.getMonth(), 1));

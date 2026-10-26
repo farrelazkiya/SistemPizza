@@ -57,9 +57,23 @@ Sistem ini tidak hanya mencatat data, tetapi juga memiliki fungsi analitik dan p
    - Penjualan dan pengeluaran persediaan memakai batch dengan tanggal kedaluwarsa terdekat terlebih dahulu (FEFO); jika tanggal sama atau tidak tersedia, gunakan batch yang diterima lebih dahulu.
    - HPP dihitung dari biaya aktual batch yang terpakai, dan alokasi batch tersimpan sebagai jejak audit.
 
-8. **🖨️ Ekspor & Cetak Dokumen Resmi**
+8. **📈 Menu Engineering & Food Cost**
+   - Menghitung Food Cost % per menu berdasarkan HPP per porsi aktual dari batch yang terpakai selama 30 hari terakhir; menu tanpa penjualan memakai estimasi resep berdasarkan batch FIFO yang tersedia.
+   - Mengklasifikasikan menu sebagai STAR, PLOWHORSE, PUZZLE, DOG, atau NORMAL berdasarkan persentase biaya dan unit terjual terhadap median.
+   - Menampilkan grafik harga saat ini vs harga target Food Cost 30% dan rentang rekomendasi untuk target 28–32%.
+   - Lima contoh menu dan resep tersedia melalui migrasi SQL; Food Cost awalnya dirancang menjadi dua rendah (<30%), satu normal (30–35%), dan dua tinggi (>35%). Migrasi juga mencatat 25 porsi penjualan dummy tunai melalui RPC kasir agar contoh mewakili STAR, PUZZLE, NORMAL, PLOWHORSE, dan DOG. Transaksi ini memengaruhi laporan keuangan serta mengurangi stok. Nilai aktual mengikuti biaya batch, jadi klasifikasi dapat berubah ketika biaya bahan berubah.
+   - Tiga menu awal dinonaktifkan dari pilihan kasir/resep dan tabel Menu Engineering tanpa menghapus transaksi atau data historisnya. Penjualan lama tetap tercakup dalam total laba-rugi dan arus kas.
+
+9. **🖨️ Ekspor & Cetak Dokumen Resmi**
    - **Cetak PDF:** Layout khusus pencetakan dokumen formal (otomatis menghilangkan elemen antarmuka seperti sidebar dan tombol saat dicetak).
    - **Download Excel (.csv):** Mengunduh seluruh riwayat *Audit Trail* ke dalam format CSV untuk analisis lanjutan menggunakan Spreadsheet.
+
+## ✨ Antarmuka Enterprise
+
+- Navigasi sidebar dengan ikon, penanda halaman aktif, breadcrumb dinamis, tanggal/waktu lokal, dan status koneksi Supabase.
+- Ringkasan KPI untuk nilai persediaan, HPP hari ini, dan penjualan hari ini; indikator restock dan kedaluwarsa ditampilkan sebagai banner peringatan.
+- Komponen kartu, tabel, badge, input, dan tombol menggunakan gaya responsif dengan fokus aksesibel serta dukungan pengurangan animasi.
+- Toast non-blocking memberi konfirmasi untuk aksi penting, termasuk penambahan item kasir dan penyimpanan transaksi.
 
 ---
 
@@ -99,7 +113,7 @@ Jika ingin mengembangkan atau menjalankan aplikasi ini di komputer lokal:
 2. Buka folder `SistemPizza` di *code editor* pilihanmu (misalnya VS Code).
 3. Karena aplikasi ini menggunakan Vanilla JS dengan CDN Supabase, kamu cukup membuka file `index.html` menggunakan *browser* (direkomendasikan menggunakan ekstensi **Live Server** di VS Code).
 4. *Catatan:* Konfigurasi URL dan API Key Supabase sudah diinisialisasi secara statis di dalam file `app.js` menggunakan *Anon Key*.
-5. Untuk database Supabase yang sudah memiliki skema dan data awal aplikasi, jalankan migrasi SQL di folder `Backend` sesuai urutan: `point_of_sale.sql`, `financial_reports.sql`, `suppliers_and_spoilage.sql`, `multi_payment.sql`, `food_waste_stocktake.sql`, lalu `batch_fifo.sql`. Migrasi terakhir mengaktifkan pelacakan batch, peringatan kedaluwarsa, dan HPP berbasis FIFO/FEFO. Stok yang sudah ada akan dimasukkan ke batch pembukaan dengan biaya unit rata-rata saat migrasi dijalankan.
+5. Untuk database Supabase yang sudah memiliki skema dan data awal aplikasi, jalankan migrasi SQL di folder `Backend` sesuai urutan: `point_of_sale.sql`, `financial_reports.sql`, `suppliers_and_spoilage.sql`, `multi_payment.sql`, `food_waste_stocktake.sql`, `batch_fifo.sql`, `menu_engineering_sample_menus.sql`, lalu `menu_selection_cleanup.sql`. Migrasi batch mengaktifkan pelacakan FIFO; migrasi menu menambahkan lima menu contoh dan resepnya, serta mencatat 25 porsi penjualan dummy tunai melalui RPC kasir. Penjualan sampel memengaruhi pendapatan, biaya HPP, dan stok, serta ditandai agar tidak dibuat ulang jika migrasi menu dijalankan lagi. Migrasi terakhir menonaktifkan tiga menu awal dari pilihan kasir/resep tanpa menghapus transaksi atau data historisnya. Menu contoh membutuhkan bahan dari `seed.sql` dan fungsi kasir dari `multi_payment.sql`. Stok yang sudah ada akan dimasukkan ke batch pembukaan dengan biaya unit rata-rata saat migrasi batch dijalankan.
 
 ---
 *Dibuat untuk memenuhi tugas Ujian Tengah Semester (UTS) / Evaluasi Proyek Mata Kuliah Sistem Informasi Akuntansi.*

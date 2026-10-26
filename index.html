@@ -11,6 +11,7 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script> <!-- FITUR BARU: Chart JS -->
+    <script src="https://unpkg.com/lucide@latest"></script>
     
     <!-- Link ke file CSS yang ada di folder yang sama (root) -->
     <link rel="stylesheet" href="style.css">
@@ -20,21 +21,29 @@
         <!-- SIDEBAR KIRI -->
         <aside class="sidebar">
             <div class="sidebar-header">
-                <h2>🍕 Pizza Craft</h2>
-                <p>ERP & Accounting System</p>
+                <div class="brand-lockup"><span class="brand-mark">🍕</span><div><h2>Pizza Craft</h2><p>ERP Workspace</p></div></div>
+                <span class="version-badge">v2.0 Enterprise</span>
             </div>
             <ul class="sidebar-menu">
-                <li class="active" onclick="switchPage('page-dashboard', this)">📊 Dashboard Utama</li>
-                <li onclick="switchPage('page-kasir', this)">🛒 Kasir & Penjualan</li>
-                <li onclick="switchPage('page-resep', this)">🧾 Kelola Resep</li>
-                <li onclick="switchPage('page-transaksi', this)">📝 Catat Transaksi</li>
-                <li onclick="switchPage('page-jurnal', this)">📖 Buku Besar & Laporan</li>
-                <li onclick="switchPage('page-laporan', this)">📈 Laba Rugi & Arus Kas</li>
+                <li class="active" onclick="switchPage('page-dashboard', this)"><i data-lucide="layout-dashboard"></i><span>Dashboard Utama</span></li>
+                <li onclick="switchPage('page-kasir', this)"><i data-lucide="shopping-cart"></i><span>Kasir & Penjualan</span></li>
+                <li onclick="switchPage('page-resep', this)"><i data-lucide="notebook-tabs"></i><span>Kelola Resep</span></li>
+                <li onclick="switchPage('page-transaksi', this)"><i data-lucide="clipboard-list"></i><span>Catat Transaksi</span></li>
+                <li onclick="switchPage('page-jurnal', this)"><i data-lucide="book-open-check"></i><span>Buku Besar & Laporan</span></li>
+                <li onclick="switchPage('page-laporan', this)"><i data-lucide="chart-no-axes-combined"></i><span>Laba Rugi & Arus Kas</span></li>
             </ul>
+            <div class="sidebar-footer"><span class="sidebar-footer-dot"></span>Operasional bisnis</div>
         </aside>
 
         <!-- KONTEN KANAN -->
         <main class="main-content">
+            <header class="topbar">
+                <div class="breadcrumb"><span>Workspace</span><i data-lucide="chevron-right"></i><strong id="current-page-title">Dashboard Persediaan</strong></div>
+                <div class="topbar-meta">
+                    <span class="topbar-clock"><i data-lucide="clock-3"></i><span id="live-datetime">Memuat waktu...</span></span>
+                    <span id="database-status" class="connection-badge is-checking"><span class="connection-dot"></span><span>Memeriksa database</span></span>
+                </div>
+            </header>
             
             <!-- HALAMAN 1: DASHBOARD -->
             <section id="page-dashboard" class="page-section active">
@@ -68,12 +77,19 @@
                     <!-- Kartu Summary -->
                     <div class="cards-grid">
                         <div class="card summary-card asset-card">
-                            <h3>💰 Total Aset Persediaan</h3>
+                            <div class="kpi-heading"><span class="kpi-icon"><i data-lucide="warehouse"></i></span><span class="kpi-label">Total Aset Persediaan</span></div>
                             <h1 id="total-asset-value">Rp 0</h1>
+                            <p class="kpi-caption">Nilai stok berdasarkan biaya saat ini</p>
                         </div>
                         <div class="card summary-card hpp-card">
-                            <h3>📈 HPP / Pemakaian Hari Ini</h3>
+                            <div class="kpi-heading"><span class="kpi-icon"><i data-lucide="receipt"></i></span><span class="kpi-label">HPP / Pemakaian Hari Ini</span></div>
                             <h1 id="today-usage-value">Rp 0</h1>
+                            <p class="kpi-caption">Biaya bahan yang terpakai hari ini</p>
+                        </div>
+                        <div class="card summary-card sales-card">
+                            <div class="kpi-heading"><span class="kpi-icon"><i data-lucide="banknote"></i></span><span class="kpi-label">Penjualan Hari Ini</span></div>
+                            <h1 id="today-sales-value">Rp 0</h1>
+                            <p class="kpi-caption">Omzet tercatat hari ini</p>
                         </div>
                     </div>
                 </div>
@@ -81,19 +97,21 @@
                 <!-- Tabel Kartu Stok -->
                 <div class="card">
                     <h3>📑 Kartu Stok & Nilai Persediaan Aktual</h3>
-                    <table class="table" style="margin-top: 15px;">
-                        <thead>
-                            <tr>
-                                <th>Bahan Baku</th>
-                                <th>Sisa Stok</th>
-                                <th>Batas Min.</th>
-                                <th>Total Nilai (Rp)</th>
-                            </tr>
-                        </thead>
-                        <tbody id="inventory-table">
-                            <tr><td colspan="4">Memuat data...</td></tr>
-                        </tbody>
-                    </table>
+                    <div class="table-scroll" style="margin-top: 15px;">
+                        <table class="table">
+                            <thead>
+                                <tr>
+                                    <th>Bahan Baku</th>
+                                    <th>Sisa Stok</th>
+                                    <th>Batas Min.</th>
+                                    <th>Total Nilai (Rp)</th>
+                                </tr>
+                            </thead>
+                            <tbody id="inventory-table">
+                                <tr><td colspan="4">Memuat data...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
                 </div>
 
                 <section class="mt-8">
@@ -322,20 +340,22 @@
                 </div>
 
                 <div class="card">
-                    <table class="table journal-table">
-                        <thead>
-                            <tr>
-                                <th>Tanggal</th>
-                                <th>Tipe</th>
-                                <th>Keterangan Transaksi / Akun</th>
-                                <th>Debit (Rp)</th>
-                                <th>Kredit (Rp)</th>
-                            </tr>
-                        </thead>
-                        <tbody id="journal-table">
-                            <tr><td colspan="5">Memuat jurnal...</td></tr>
-                        </tbody>
-                    </table>
+                    <div class="table-scroll">
+                        <table class="table journal-table">
+                            <thead>
+                                <tr>
+                                    <th>Tanggal</th>
+                                    <th>Tipe</th>
+                                    <th>Keterangan Transaksi / Akun</th>
+                                    <th>Debit (Rp)</th>
+                                    <th>Kredit (Rp)</th>
+                                </tr>
+                            </thead>
+                            <tbody id="journal-table">
+                                <tr><td colspan="5">Memuat jurnal...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
                 </div>
                 <div class="card report-card">
                     <h2>Jurnal Penjualan</h2>
@@ -375,6 +395,39 @@
                         <button type="button" id="financial-report-apply" class="btn">Tampilkan</button>
                         <button type="button" onclick="window.print()" class="btn btn-print">🖨️ Cetak / PDF</button>
                     </div>
+                </div>
+
+                <div class="card report-card">
+                    <div class="flex-between menu-engineering-header">
+                        <div>
+                            <h2>Analisis Menu Engineering & Food Cost %</h2>
+                            <p class="report-note">Periode penjualan 30 hari terakhir; penjualan tinggi berarti unit terjual di atas median seluruh menu. Food Cost &lt;30% = ideal, 30–35% = normal, &gt;35% = tinggi.</p>
+                        </div>
+                        <button type="button" id="menu-engineering-refresh" class="btn">🔄 Perbarui Analisis</button>
+                    </div>
+                    <div class="menu-engineering-chart">
+                        <canvas id="menu-engineering-chart" aria-label="Perbandingan harga jual saat ini dan rekomendasi harga ideal per menu"></canvas>
+                    </div>
+                    <div class="table-scroll">
+                        <table class="table">
+                            <thead>
+                                <tr>
+                                    <th>Menu</th>
+                                    <th>HPP / Porsi</th>
+                                    <th>Harga Jual</th>
+                                    <th>Food Cost %</th>
+                                    <th>Terjual (30 hari)</th>
+                                    <th>Kategori</th>
+                                    <th>Rentang Harga Ideal (28–32%)</th>
+                                    <th>Harga Target (30%)</th>
+                                </tr>
+                            </thead>
+                            <tbody id="menu-engineering-table">
+                                <tr><td colspan="8">Buka laporan untuk memuat analisis menu.</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                    <p class="report-note">HPP memakai biaya batch aktual untuk menu yang terjual dalam periode ini. Menu tanpa penjualan memakai estimasi biaya resep berdasarkan batch FIFO yang tersedia, dengan harga rata-rata bahan sebagai cadangan jika stok batch tidak mencukupi.</p>
                 </div>
 
                 <div class="report-summary-grid">
@@ -487,6 +540,7 @@
         </main>
     </div>
 
+    <div id="toast-region" class="toast-region" role="status" aria-live="polite"></div>
     <!-- Link ke file JavaScript yang ada di folder yang sama (root) -->
     <script src="app.js"></script>
 </body>
