@@ -157,7 +157,18 @@ body { background: #f8fafc; color: var(--color-ink); }
     padding: 24px 14px;
     display: flex;
     flex-direction: column;
+    height: 100vh;
+    height: 100dvh;
+    min-height: 0;
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior-y: contain;
+    scrollbar-color: #475569 transparent;
+    scrollbar-width: thin;
 }
+.sidebar::-webkit-scrollbar { width: 6px; }
+.sidebar::-webkit-scrollbar-thumb { border-radius: 999px; background: #475569; }
+.sidebar-header, .sidebar-menu, .sidebar-footer { flex-shrink: 0; }
 .sidebar-header { padding: 0 10px 22px; margin: 0 0 22px; border-bottom-color: rgba(148, 163, 184, 0.16); }
 .brand-lockup { display: flex; align-items: center; gap: 11px; }
 .brand-mark { display: grid; place-items: center; width: 44px; height: 44px; border-radius: 14px; background: rgba(255,255,255,.1); font-size: 1.5rem; }
