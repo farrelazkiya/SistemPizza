@@ -27,6 +27,7 @@
                 <li onclick="switchPage('page-resep', this)">🧾 Kelola Resep</li>
                 <li onclick="switchPage('page-transaksi', this)">📝 Catat Transaksi</li>
                 <li onclick="switchPage('page-jurnal', this)">📖 Buku Besar & Laporan</li>
+                <li onclick="switchPage('page-laporan', this)">📈 Laba Rugi & Arus Kas</li>
             </ul>
         </aside>
 
@@ -192,6 +193,19 @@
                             <label>Dibeli dari (Supplier)</label>
                             <select id="supplier_id"><option value="">-- Pilih Supplier --</option></select>
                         </div>
+
+                        <div class="form-group" id="group-payment">
+                            <label>Status Pembayaran Pembelian</label>
+                            <select id="inventory-payment-method">
+                                <option value="CASH">💵 Dibayar tunai</option>
+                                <option value="CREDIT">🧾 Utang / belum dibayar</option>
+                            </select>
+                        </div>
+
+                        <div class="form-group" id="group-purchase-price">
+                            <label for="inventory-unit-price">Harga beli per satuan (Rp)</label>
+                            <input type="number" id="inventory-unit-price" min="0" step="0.01" required>
+                        </div>
                         
                         <div class="form-group hidden" id="group-menu">
                             <label>Digunakan untuk (Produksi Menu)</label>
@@ -239,6 +253,134 @@
                             <tr><td colspan="5">Memuat jurnal...</td></tr>
                         </tbody>
                     </table>
+                </div>
+            </section>
+
+            <!-- HALAMAN 6: LAPORAN KEUANGAN -->
+            <section id="page-laporan" class="page-section">
+                <div class="header-title flex-between">
+                    <div>
+                        <h1>Laba Rugi & Arus Kas</h1>
+                        <p>Ringkasan pendapatan, HPP, biaya operasional, serta kas masuk dan keluar.</p>
+                    </div>
+                    <button type="button" id="financial-report-refresh" class="btn">🔄 Perbarui Laporan</button>
+                </div>
+
+                <div class="card report-filter-card">
+                    <div class="report-date-filter">
+                        <div class="form-group">
+                            <label for="report-start-date">Dari tanggal</label>
+                            <input type="date" id="report-start-date">
+                        </div>
+                        <div class="form-group">
+                            <label for="report-end-date">Sampai tanggal</label>
+                            <input type="date" id="report-end-date">
+                        </div>
+                        <button type="button" id="financial-report-apply" class="btn">Tampilkan</button>
+                        <button type="button" onclick="window.print()" class="btn btn-print">🖨️ Cetak / PDF</button>
+                    </div>
+                </div>
+
+                <div class="report-summary-grid">
+                    <div class="card report-summary-card">
+                        <h3>Penjualan</h3>
+                        <strong id="report-revenue">Rp 0</strong>
+                    </div>
+                    <div class="card report-summary-card">
+                        <h3>Laba Kotor</h3>
+                        <strong id="report-gross-profit">Rp 0</strong>
+                    </div>
+                    <div class="card report-summary-card">
+                        <h3>Laba / (Rugi) Bersih</h3>
+                        <strong id="report-net-profit">Rp 0</strong>
+                    </div>
+                    <div class="card report-summary-card">
+                        <h3>Arus Kas Bersih</h3>
+                        <strong id="report-net-cash-flow">Rp 0</strong>
+                    </div>
+                </div>
+
+                <div class="card report-card">
+                    <h2>Laporan Laba Rugi</h2>
+                    <div class="table-scroll">
+                        <table class="table">
+                            <tbody id="profit-loss-table">
+                                <tr><td>Memuat laporan...</td><td></td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                    <p class="report-note">Pembelian bahan baku dicatat sebagai persediaan; HPP dihitung saat stok digunakan. Pajak dan biaya yang belum dicatat tidak termasuk.</p>
+                </div>
+
+                <div class="card report-card">
+                    <h2>Arus Kas</h2>
+                    <div class="report-summary-grid cash-summary-grid">
+                        <div><span>Kas masuk</span><strong id="report-cash-in">Rp 0</strong></div>
+                        <div><span>Kas keluar</span><strong id="report-cash-out">Rp 0</strong></div>
+                    </div>
+                    <div class="table-scroll">
+                        <table class="table">
+                            <thead>
+                                <tr><th>Tanggal</th><th>Keterangan</th><th>Kas Masuk</th><th>Kas Keluar</th></tr>
+                            </thead>
+                            <tbody id="cash-flow-table">
+                                <tr><td colspan="4">Memuat arus kas...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                    <p id="report-cash-warning" class="report-note"></p>
+                    <p class="report-note">Arus kas bersih adalah kas masuk dikurangi pembayaran yang tercatat. Saldo awal dan saldo akhir kas belum dihitung.</p>
+                </div>
+
+                <div class="card report-card">
+                    <h2>Catat Biaya Operasional</h2>
+                    <form id="expense-form" class="expense-form">
+                        <div class="form-group">
+                            <label for="expense-description">Keterangan biaya</label>
+                            <input type="text" id="expense-description" maxlength="200" required placeholder="Contoh: Listrik bulan ini">
+                        </div>
+                        <div class="form-group">
+                            <label for="expense-category">Kategori</label>
+                            <input type="text" id="expense-category" maxlength="100" required placeholder="Contoh: Utilitas">
+                        </div>
+                        <div class="form-group">
+                            <label for="expense-amount">Nominal (Rp)</label>
+                            <input type="number" id="expense-amount" min="1" step="1" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="expense-payment-method">Pembayaran</label>
+                            <select id="expense-payment-method" required>
+                                <option value="CASH">Dibayar sekarang</option>
+                                <option value="CREDIT">Utang / belum dibayar</option>
+                            </select>
+                        </div>
+                        <button type="submit" class="btn">💾 Simpan Biaya</button>
+                    </form>
+                    <div class="table-scroll">
+                        <table class="table">
+                            <thead>
+                                <tr><th>Tanggal</th><th>Keterangan</th><th>Kategori</th><th>Nominal</th><th>Status</th></tr>
+                            </thead>
+                            <tbody id="expense-table">
+                                <tr><td colspan="5">Pilih periode dan tampilkan laporan.</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <div class="card report-card">
+                    <h2>Utang Belum Dibayar</h2>
+                    <p class="report-note">Tandai dibayar saat transaksi kredit benar-benar dilunasi agar tercatat di periode arus kas yang tepat.</p>
+                    <div class="table-scroll">
+                        <table class="table">
+                            <thead>
+                                <tr><th>Tanggal</th><th>Jenis</th><th>Keterangan</th><th>Nominal</th><th>Aksi</th></tr>
+                            </thead>
+                            <tbody id="payables-table">
+                                <tr><td colspan="5">Memuat utang...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
                 </div>
             </section>
 

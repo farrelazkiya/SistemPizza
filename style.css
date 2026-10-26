@@ -84,10 +84,26 @@ input, select { width: 100%; padding: 12px; border: 1px solid #cbd5e1; border-ra
 .btn-remove { padding: 6px 10px; background: #64748b; font-size: 0.8rem; }
 .btn-remove:hover { background: #475569; }
 
+/* Laporan keuangan */
+.report-filter-card, .report-card { margin-bottom: 20px; }
+.report-date-filter { display: grid; grid-template-columns: 1fr 1fr auto auto; gap: 14px; align-items: end; }
+.report-date-filter .form-group { margin-bottom: 0; }
+.report-summary-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; margin-bottom: 20px; }
+.report-summary-card h3 { color: #64748b; font-size: 0.9rem; font-weight: 600; }
+.report-summary-card strong { display: block; margin-top: 8px; color: #0f172a; font-size: 1.4rem; overflow-wrap: anywhere; }
+.report-card h2 { margin-bottom: 16px; color: #1e293b; font-size: 1.15rem; }
+.report-amount { text-align: right !important; white-space: nowrap; }
+.report-total { font-weight: 700; background: #f8fafc; }
+.report-note { margin-top: 12px; color: #64748b; font-size: 0.85rem; }
+.cash-summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.cash-summary-grid > div { display: flex; justify-content: space-between; gap: 12px; padding: 14px; border-radius: 8px; background: #f8fafc; }
+.expense-form { display: grid; grid-template-columns: 2fr 1fr 1fr 1fr auto; gap: 12px; align-items: end; margin-bottom: 24px; }
+.expense-form .form-group { margin-bottom: 0; }
+
 /* STREAMING_CHUNK:Fitur Cetak Dokumen Resmi (PDF) */
 @media print {
     /* Sembunyikan elemen yang tidak perlu dicetak */
-    .sidebar, .btn, .alert-box, .filter-select { display: none !important; }
+    .sidebar, .btn, .alert-box, .filter-select, .report-filter-card, .expense-form { display: none !important; }
     
     /* Lebarkan konten utama */
     .main-content { margin-left: 0; padding: 0; width: 100%; }
@@ -106,4 +122,6 @@ input, select { width: 100%; padding: 12px; border: 1px solid #cbd5e1; border-ra
     #pos-add-form, .recipe-form { grid-template-columns: 1fr; }
     .pos-checkout { align-items: stretch; flex-direction: column; }
     .pos-checkout .btn { justify-content: center; }
+    .report-summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .report-date-filter, .expense-form { grid-template-columns: 1fr; }
 }

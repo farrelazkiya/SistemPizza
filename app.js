@@ -27,11 +27,16 @@ function switchPage(pageId, element) {
 
 function toggleDynamicFields() {
     const type = document.getElementById('type').value;
+    document.getElementById('inventory-unit-price').required = type === 'IN';
     if (type === 'IN') {
         document.getElementById('group-supplier').classList.remove('hidden');
+        document.getElementById('group-payment').classList.remove('hidden');
+        document.getElementById('group-purchase-price').classList.remove('hidden');
         document.getElementById('group-menu').classList.add('hidden');
     } else {
         document.getElementById('group-supplier').classList.add('hidden');
+        document.getElementById('group-payment').classList.add('hidden');
+        document.getElementById('group-purchase-price').classList.add('hidden');
         document.getElementById('group-menu').classList.remove('hidden');
     }
 }
@@ -255,11 +260,16 @@ async function loadJournalAndAnalysis(filterIngredientId = '') {
         
         // Pembuatan Baris Tabel dengan Badge Visual
         if (log.type === 'IN') {
+            const paymentAccount = log.payment_method === 'CREDIT'
+                ? 'Utang Dagang'
+                : log.payment_method === 'CASH'
+                    ? 'Kas'
+                    : 'Kas / Utang Dagang (pembayaran belum diketahui)';
             journalBody.innerHTML += `
                 <tr>
                     <td>${dateStr}</td>
                     <td><span class="badge badge-in">IN</span></td>
-                    <td><b>Persediaan (${log.ingredients.name})</b> - Masuk ${log.qty} ${supplierName}<br><div class="acc-kredit">Kas / Utang Dagang</div></td>
+                    <td><b>Persediaan (${log.ingredients.name})</b> - Masuk ${log.qty} ${supplierName}<br><div class="acc-kredit">${paymentAccount}</div></td>
                     <td>Rp ${formatRp(totalVal)}<br>-</td>
                     <td>-<br>Rp ${formatRp(totalVal)}</td>
                 </tr>
@@ -295,9 +305,16 @@ document.getElementById('transaction-form').addEventListener('submit', async (e)
     
     const supplierId = document.getElementById('supplier_id').value || null;
     const menuItemId = document.getElementById('menu_item_id').value || null;
+    const paymentMethod = type === 'IN'
+        ? document.getElementById('inventory-payment-method').value
+        : null;
+    const unitPrice = type === 'IN'
+        ? Number(document.getElementById('inventory-unit-price').value)
+        : null;
 
     if (!ingredientId || !Number.isFinite(qty) || qty <= 0) return alert("Pilih bahan dan masukkan kuantitas yang valid!");
     if (type === 'IN' && !supplierId) return alert("Pilih Supplier terlebih dahulu!");
+    if (type === 'IN' && (!Number.isFinite(unitPrice) || unitPrice < 0)) return alert("Masukkan harga beli per satuan yang valid!");
     if (type === 'OUT' && !menuItemId) return alert("Pilih Menu Pizza terlebih dahulu!");
 
     const button = document.querySelector('#transaction-form button[type="submit"]');
@@ -309,7 +326,9 @@ document.getElementById('transaction-form').addEventListener('submit', async (e)
             p_type: type,
             p_qty: qty,
             p_supplier_id: supplierId ? Number(supplierId) : null,
-            p_menu_item_id: menuItemId ? Number(menuItemId) : null
+            p_menu_item_id: menuItemId ? Number(menuItemId) : null,
+            p_payment_method: paymentMethod,
+            p_unit_price: unitPrice
         });
         if (error) throw error;
 
@@ -328,6 +347,11 @@ document.getElementById('transaction-form').addEventListener('submit', async (e)
         button.innerText = "💾 Simpan Jurnal & Update Stok";
         button.disabled = false;
     }
+});
+
+document.getElementById('ingredient_id').addEventListener('change', (event) => {
+    const selectedOption = event.currentTarget.options[event.currentTarget.selectedIndex];
+    document.getElementById('inventory-unit-price').value = selectedOption.dataset.price || '';
 });
 
 document.getElementById('pos-add-form').addEventListener('submit', (e) => {
@@ -461,8 +485,277 @@ function downloadExcel() {
     document.body.appendChild(link); link.click(); document.body.removeChild(link);
 }
 
+function localDateValue(date) {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+}
+
+function reportDateBounds() {
+    const startValue = document.getElementById('report-start-date').value;
+    const endValue = document.getElementById('report-end-date').value;
+    if (!startValue || !endValue || startValue > endValue) {
+        throw new Error('Pilih rentang tanggal yang valid.');
+    }
+
+    const [startYear, startMonth, startDay] = startValue.split('-').map(Number);
+    const [endYear, endMonth, endDay] = endValue.split('-').map(Number);
+    const start = new Date(startYear, startMonth - 1, startDay);
+    const endExclusive = new Date(endYear, endMonth - 1, endDay + 1);
+    return { start: start.toISOString(), end: endExclusive.toISOString() };
+}
+
+function reportStatus(paymentMethod, paidAt) {
+    if (paidAt) return paymentMethod === 'CREDIT' ? 'Lunas (Utang)' : 'Dibayar';
+    if (paymentMethod === 'CREDIT') return 'Belum dibayar';
+    return 'Pembayaran belum diketahui';
+}
+
+async function fetchAllReportRows(queryFactory) {
+    const rows = [];
+    const pageSize = 1000;
+    for (let offset = 0; ; offset += pageSize) {
+        const { data, error } = await queryFactory().range(offset, offset + pageSize - 1);
+        if (error) return { data: null, error };
+        rows.push(...(data || []));
+        if (!data || data.length < pageSize) return { data: rows, error: null };
+    }
+}
+
+async function loadFinancialReport() {
+    const profitLossBody = document.getElementById('profit-loss-table');
+    const cashFlowBody = document.getElementById('cash-flow-table');
+    const expenseBody = document.getElementById('expense-table');
+    const payableBody = document.getElementById('payables-table');
+    try {
+        const { start, end } = reportDateBounds();
+        profitLossBody.innerHTML = '<tr><td colspan="2">Memuat laporan...</td></tr>';
+        cashFlowBody.innerHTML = '<tr><td colspan="4">Memuat arus kas...</td></tr>';
+        expenseBody.innerHTML = '<tr><td colspan="5">Memuat biaya...</td></tr>';
+        payableBody.innerHTML = '<tr><td colspan="5">Memuat utang...</td></tr>';
+
+        const queryFactories = [
+            () => supabaseClient.from('sales').select('id, total_amount, created_at')
+                .gte('created_at', start).lt('created_at', end).order('created_at'),
+            () => supabaseClient.from('inventory_logs')
+                .select('id, created_at, qty, unit_price_at_time, menu_item_id, notes, ingredients(name)')
+                .eq('type', 'OUT').gte('created_at', start).lt('created_at', end).order('created_at'),
+            () => supabaseClient.from('operating_expenses')
+                .select('id, description, category, amount, payment_method, created_at, paid_at')
+                .gte('created_at', start).lt('created_at', end).order('created_at'),
+            () => supabaseClient.from('inventory_logs')
+                .select('id, qty, unit_price_at_time, paid_at, ingredients(name), suppliers(name)')
+                .eq('type', 'IN').gte('paid_at', start).lt('paid_at', end).order('paid_at'),
+            () => supabaseClient.from('operating_expenses')
+                .select('id, description, amount, paid_at')
+                .not('paid_at', 'is', null).gte('paid_at', start).lt('paid_at', end).order('paid_at'),
+            () => supabaseClient.from('inventory_logs')
+                .select('id, qty, unit_price_at_time, created_at, notes, ingredients(name), suppliers(name)')
+                .eq('type', 'IN').eq('payment_method', 'CREDIT').is('paid_at', null).order('created_at'),
+            () => supabaseClient.from('operating_expenses')
+                .select('id, description, category, amount, created_at')
+                .eq('payment_method', 'CREDIT').is('paid_at', null).order('created_at'),
+            () => supabaseClient.from('inventory_logs')
+                .select('id, qty, unit_price_at_time')
+                .eq('type', 'IN').is('payment_method', null)
+                .gte('created_at', start).lt('created_at', end)
+        ];
+        const [salesResult, cogsResult, expensesResult, purchasesPaidResult,
+            expensesPaidResult, unpaidPurchasesResult, unpaidExpensesResult,
+            unknownPurchasesResult] = await Promise.all(queryFactories.map(fetchAllReportRows));
+        const results = [salesResult, cogsResult, expensesResult, purchasesPaidResult,
+            expensesPaidResult, unpaidPurchasesResult, unpaidExpensesResult, unknownPurchasesResult];
+        const failedResult = results.find(result => result.error);
+        if (failedResult) throw failedResult.error;
+
+        const sales = salesResult.data || [];
+        const cogsLogs = cogsResult.data || [];
+        const expenses = expensesResult.data || [];
+        const paidPurchases = purchasesPaidResult.data || [];
+        const paidExpenses = expensesPaidResult.data || [];
+        const unpaidPurchases = unpaidPurchasesResult.data || [];
+        const unpaidExpenses = unpaidExpensesResult.data || [];
+        const unknownPurchases = unknownPurchasesResult.data || [];
+
+        const revenue = sales.reduce((sum, sale) => sum + Number(sale.total_amount), 0);
+        const cogs = cogsLogs.reduce((sum, log) => sum + Number(log.qty) * Number(log.unit_price_at_time), 0);
+        const grossProfit = revenue - cogs;
+        const expenseTotal = expenses.reduce((sum, expense) => sum + Number(expense.amount), 0);
+        const netProfit = grossProfit - expenseTotal;
+        const cashIn = revenue;
+        const purchaseCashOut = paidPurchases.reduce((sum, log) =>
+            sum + Number(log.qty) * Number(log.unit_price_at_time), 0);
+        const expenseCashOut = paidExpenses.reduce((sum, expense) => sum + Number(expense.amount), 0);
+        const cashOut = purchaseCashOut + expenseCashOut;
+
+        document.getElementById('report-revenue').innerText = `Rp ${formatRp(revenue)}`;
+        document.getElementById('report-gross-profit').innerText = `Rp ${formatRp(grossProfit)}`;
+        document.getElementById('report-net-profit').innerText = `Rp ${formatRp(netProfit)}`;
+        document.getElementById('report-net-profit').classList.toggle('text-danger', netProfit < 0);
+        document.getElementById('report-net-cash-flow').innerText = `Rp ${formatRp(cashIn - cashOut)}`;
+        document.getElementById('report-net-cash-flow').classList.toggle('text-danger', cashIn - cashOut < 0);
+        document.getElementById('report-cash-in').innerText = `Rp ${formatRp(cashIn)}`;
+        document.getElementById('report-cash-out').innerText = `Rp ${formatRp(cashOut)}`;
+
+        const expensesByCategory = new Map();
+        expenses.forEach(expense => {
+            expensesByCategory.set(
+                expense.category,
+                (expensesByCategory.get(expense.category) || 0) + Number(expense.amount)
+            );
+        });
+        const expenseRows = [...expensesByCategory.entries()].sort(([left], [right]) => left.localeCompare(right, 'id'))
+            .map(([category, amount]) => `<tr><td>Biaya ${escapeHtml(category)}</td><td class="report-amount">Rp ${formatRp(amount)}</td></tr>`)
+            .join('');
+        profitLossBody.innerHTML = `
+            <tr><th>Pendapatan penjualan</th><td class="report-amount">Rp ${formatRp(revenue)}</td></tr>
+            <tr><td>(-) Harga Pokok Penjualan (HPP)</td><td class="report-amount">Rp ${formatRp(cogs)}</td></tr>
+            <tr class="report-total"><th>Laba Kotor</th><td class="report-amount">Rp ${formatRp(grossProfit)}</td></tr>
+            <tr><th colspan="2">Biaya Operasional</th></tr>
+            ${expenseRows || '<tr><td colspan="2">Belum ada biaya operasional pada periode ini.</td></tr>'}
+            <tr class="report-total"><th>Laba / (Rugi) Bersih</th><td class="report-amount">Rp ${formatRp(netProfit)}</td></tr>
+        `;
+
+        const cashEntries = [
+            ...sales.map(sale => ({
+                date: sale.created_at,
+                description: `Penjualan #${sale.id}`,
+                inflow: Number(sale.total_amount),
+                outflow: 0
+            })),
+            ...paidPurchases.map(purchase => ({
+                date: purchase.paid_at,
+                description: `Pembelian bahan: ${purchase.ingredients?.name || 'Bahan baku'}${purchase.suppliers?.name ? ` (${purchase.suppliers.name})` : ''}`,
+                inflow: 0,
+                outflow: Number(purchase.qty) * Number(purchase.unit_price_at_time)
+            })),
+            ...paidExpenses.map(expense => ({
+                date: expense.paid_at,
+                description: `Biaya: ${expense.description}`,
+                inflow: 0,
+                outflow: Number(expense.amount)
+            }))
+        ].sort((left, right) => new Date(right.date) - new Date(left.date));
+        cashFlowBody.innerHTML = cashEntries.length
+            ? cashEntries.map(entry => `
+                <tr>
+                    <td>${new Date(entry.date).toLocaleDateString('id-ID')}</td>
+                    <td>${escapeHtml(entry.description)}</td>
+                    <td>${entry.inflow ? `Rp ${formatRp(entry.inflow)}` : '-'}</td>
+                    <td>${entry.outflow ? `Rp ${formatRp(entry.outflow)}` : '-'}</td>
+                </tr>
+            `).join('')
+            : '<tr><td colspan="4">Belum ada arus kas pada periode ini.</td></tr>';
+
+        expenseBody.innerHTML = expenses.length
+            ? expenses.map(expense => `
+                <tr>
+                    <td>${new Date(expense.created_at).toLocaleDateString('id-ID')}</td>
+                    <td>${escapeHtml(expense.description)}</td>
+                    <td>${escapeHtml(expense.category)}</td>
+                    <td>Rp ${formatRp(expense.amount)}</td>
+                    <td>${reportStatus(expense.payment_method, expense.paid_at)}</td>
+                </tr>
+            `).join('')
+            : '<tr><td colspan="5">Belum ada biaya pada periode ini.</td></tr>';
+
+        const payableRows = [
+            ...unpaidPurchases.map(purchase => ({
+                id: purchase.id,
+                type: 'PURCHASE',
+                date: purchase.created_at,
+                description: `Pembelian ${purchase.ingredients?.name || 'bahan baku'}${purchase.suppliers?.name ? ` dari ${purchase.suppliers.name}` : ''}${purchase.notes ? ` - ${purchase.notes}` : ''}`,
+                amount: Number(purchase.qty) * Number(purchase.unit_price_at_time)
+            })),
+            ...unpaidExpenses.map(expense => ({
+                id: expense.id,
+                type: 'EXPENSE',
+                date: expense.created_at,
+                description: `${expense.description} (${expense.category})`,
+                amount: Number(expense.amount)
+            }))
+        ].sort((left, right) => new Date(left.date) - new Date(right.date));
+        payableBody.innerHTML = payableRows.length
+            ? payableRows.map(payable => `
+                <tr>
+                    <td>${new Date(payable.date).toLocaleDateString('id-ID')}</td>
+                    <td>${payable.type === 'PURCHASE' ? 'Pembelian stok' : 'Biaya operasional'}</td>
+                    <td>${escapeHtml(payable.description)}</td>
+                    <td>Rp ${formatRp(payable.amount)}</td>
+                    <td><button type="button" class="btn btn-payable" data-source-type="${payable.type}" data-source-id="${payable.id}">Tandai dibayar</button></td>
+                </tr>
+            `).join('')
+            : '<tr><td colspan="5">Tidak ada utang yang belum dibayar.</td></tr>';
+
+        const unknownPurchaseTotal = unknownPurchases.reduce((sum, purchase) =>
+            sum + Number(purchase.qty) * Number(purchase.unit_price_at_time), 0);
+        document.getElementById('report-cash-warning').innerText = unknownPurchases.length
+            ? `${unknownPurchases.length} pembelian stok lama senilai Rp ${formatRp(unknownPurchaseTotal)} tidak memiliki status pembayaran, sehingga tidak dimasukkan ke arus kas.`
+            : 'Penjualan kasir dianggap langsung diterima. Pembelian stok dan biaya operasional masuk arus kas pada tanggal pembayarannya.';
+    } catch (error) {
+        console.error('Gagal memuat laporan keuangan:', error);
+        profitLossBody.innerHTML = '<tr><td colspan="2">Laporan gagal dimuat.</td></tr>';
+        cashFlowBody.innerHTML = '<tr><td colspan="4">Arus kas gagal dimuat.</td></tr>';
+        expenseBody.innerHTML = '<tr><td colspan="5">Biaya gagal dimuat.</td></tr>';
+        payableBody.innerHTML = '<tr><td colspan="5">Utang gagal dimuat.</td></tr>';
+        alert(`Gagal memuat laporan keuangan: ${error.message}`);
+    }
+}
+
+document.getElementById('financial-report-apply').addEventListener('click', loadFinancialReport);
+document.getElementById('financial-report-refresh').addEventListener('click', loadFinancialReport);
+
+document.getElementById('expense-form').addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const button = form.querySelector('button[type="submit"]');
+    button.disabled = true;
+    try {
+        const { error } = await supabaseClient.rpc('create_operating_expense', {
+            p_description: document.getElementById('expense-description').value.trim(),
+            p_category: document.getElementById('expense-category').value.trim(),
+            p_amount: Number(document.getElementById('expense-amount').value),
+            p_payment_method: document.getElementById('expense-payment-method').value
+        });
+        if (error) throw error;
+        form.reset();
+        await loadFinancialReport();
+        alert('Biaya operasional berhasil dicatat.');
+    } catch (error) {
+        console.error('Gagal mencatat biaya operasional:', error);
+        alert(`Biaya operasional gagal dicatat: ${error.message}`);
+    } finally {
+        button.disabled = false;
+    }
+});
+
+document.getElementById('payables-table').addEventListener('click', async (event) => {
+    const button = event.target.closest('[data-source-type]');
+    if (!button) return;
+    if (!window.confirm('Tandai utang ini sudah dibayar? Pembayaran akan tercatat pada periode saat ini.')) return;
+    button.disabled = true;
+    try {
+        const { error } = await supabaseClient.rpc('settle_financial_payable', {
+            p_source_type: button.dataset.sourceType,
+            p_source_id: Number(button.dataset.sourceId)
+        });
+        if (error) throw error;
+        await loadFinancialReport();
+        alert('Pembayaran utang berhasil dicatat.');
+    } catch (error) {
+        console.error('Gagal mencatat pembayaran utang:', error);
+        alert(`Pembayaran gagal dicatat: ${error.message}`);
+        button.disabled = false;
+    }
+});
+
 // Inisialisasi awal saat web dibuka
 loadSuppliersAndMenus();
 loadInventory();
 loadJournalAndAnalysis();
 renderPosCart();
+const reportToday = new Date();
+document.getElementById('report-start-date').value = localDateValue(new Date(reportToday.getFullYear(), reportToday.getMonth(), 1));
+document.getElementById('report-end-date').value = localDateValue(reportToday);
+loadFinancialReport();
