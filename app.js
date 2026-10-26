@@ -116,7 +116,12 @@ async function loadIngredientSuppliers() {
 function renderPosCart() {
     const cartBody = document.getElementById('pos-cart-table');
     const total = posCart.reduce((sum, item) => sum + item.selling_price * item.quantity, 0);
+    const paymentMethod = document.getElementById('pos-payment-method').value;
+    const platformFee = ['GOFOOD', 'GRABFOOD'].includes(paymentMethod) ? Math.round(total * 0.2) : 0;
     document.getElementById('pos-total').innerText = `Rp ${formatRp(total)}`;
+    document.getElementById('pos-settlement-preview').innerText = platformFee
+        ? `Piutang setelah komisi 20%: Rp ${formatRp(total - platformFee)}`
+        : `Diterima penuh: Rp ${formatRp(total)}`;
     document.getElementById('pos-checkout-button').disabled = posCart.length === 0;
 
     if (posCart.length === 0) {
@@ -133,6 +138,52 @@ function renderPosCart() {
             <td><button type="button" class="btn btn-remove" data-cart-index="${index}">Hapus</button></td>
         </tr>
     `).join('');
+}
+
+async function loadSalesJournal() {
+    const salesBody = document.getElementById('sales-journal-table');
+    const { data: sales, error } = await supabaseClient
+        .from('sales')
+        .select('id, total_amount, payment_method, platform_fee, created_at')
+        .order('created_at', { ascending: false })
+        .limit(100);
+    if (error) {
+        salesBody.innerHTML = '<tr><td colspan="7">Gagal memuat jurnal penjualan.</td></tr>';
+        console.error('Gagal memuat jurnal penjualan:', error);
+        alert(`Gagal memuat jurnal penjualan: ${error.message}`);
+        return;
+    }
+    if (!sales || sales.length === 0) {
+        salesBody.innerHTML = '<tr><td colspan="7">Belum ada transaksi penjualan.</td></tr>';
+        return;
+    }
+
+    const paymentLabels = {
+        CASH: 'Tunai (Kas)',
+        QRIS: 'QRIS / Bank Transfer',
+        GOFOOD: 'GoFood',
+        GRABFOOD: 'GrabFood'
+    };
+    salesBody.innerHTML = sales.map(sale => {
+        const amount = Number(sale.total_amount);
+        const fee = Number(sale.platform_fee);
+        const receivable = amount - fee;
+        const isPlatform = ['GOFOOD', 'GRABFOOD'].includes(sale.payment_method);
+        const journalLines = isPlatform
+            ? `<b>Debit</b>: Beban Komisi ${paymentLabels[sale.payment_method]} Rp ${formatRp(fee)}<br>Debit: Piutang ${paymentLabels[sale.payment_method]} Rp ${formatRp(receivable)}<br><b>Kredit</b>: Pendapatan Penjualan Rp ${formatRp(amount)}`
+            : `<b>Debit</b>: ${sale.payment_method === 'CASH' ? 'Kas' : 'Bank / QRIS'} Rp ${formatRp(amount)}<br><b>Kredit</b>: Pendapatan Penjualan Rp ${formatRp(amount)}`;
+        return `
+            <tr>
+                <td>${new Date(sale.created_at).toLocaleString('id-ID')}</td>
+                <td>#${sale.id}</td>
+                <td>${paymentLabels[sale.payment_method] || escapeHtml(sale.payment_method)}</td>
+                <td>Rp ${formatRp(amount)}</td>
+                <td>${fee ? `Rp ${formatRp(fee)}` : '-'}</td>
+                <td>${isPlatform ? `Piutang Rp ${formatRp(receivable)}` : `Kas/Bank Rp ${formatRp(amount)}`}</td>
+                <td>${journalLines}</td>
+            </tr>
+        `;
+    }).join('');
 }
 
 async function loadMenuRecipe() {
@@ -422,10 +473,17 @@ document.getElementById('pos-cart-table').addEventListener('click', (e) => {
     renderPosCart();
 });
 
+document.getElementById('pos-payment-method').addEventListener('change', renderPosCart);
+
 document.getElementById('pos-checkout-button').addEventListener('click', async (e) => {
     if (posCart.length === 0) return;
     const total = posCart.reduce((sum, item) => sum + item.selling_price * item.quantity, 0);
-    if (!window.confirm(`Simpan penjualan dengan total Rp ${formatRp(total)}?`)) return;
+    const paymentMethod = document.getElementById('pos-payment-method').value;
+    const platformFee = ['GOFOOD', 'GRABFOOD'].includes(paymentMethod) ? Math.round(total * 0.2) : 0;
+    const confirmation = platformFee
+        ? `Simpan penjualan Rp ${formatRp(total)} melalui ${paymentMethod}?\nKomisi 20%: Rp ${formatRp(platformFee)}\nPiutang platform: Rp ${formatRp(total - platformFee)}`
+        : `Simpan penjualan Rp ${formatRp(total)} melalui ${paymentMethod}?`;
+    if (!window.confirm(confirmation)) return;
 
     const button = e.currentTarget;
     button.disabled = true;
@@ -435,7 +493,8 @@ document.getElementById('pos-checkout-button').addEventListener('click', async (
             p_items: posCart.map(item => ({
                 menu_item_id: item.id,
                 quantity: item.quantity
-            }))
+            })),
+            p_payment_method: paymentMethod
         });
         if (error) throw error;
 
@@ -443,7 +502,9 @@ document.getElementById('pos-checkout-button').addEventListener('click', async (
         renderPosCart();
         await Promise.all([
             loadInventory(),
-            loadJournalAndAnalysis(document.getElementById('filter-ingredient').value)
+            loadJournalAndAnalysis(document.getElementById('filter-ingredient').value),
+            loadSalesJournal(),
+            loadFinancialReport()
         ]);
         alert(`Penjualan #${saleId} berhasil disimpan dan stok resep telah diperbarui.`);
     } catch (error) {
@@ -573,7 +634,8 @@ async function loadFinancialReport() {
         payableBody.innerHTML = '<tr><td colspan="5">Memuat utang...</td></tr>';
 
         const queryFactories = [
-            () => supabaseClient.from('sales').select('id, total_amount, created_at')
+            () => supabaseClient.from('sales')
+                .select('id, total_amount, payment_method, platform_fee, created_at')
                 .gte('created_at', start).lt('created_at', end).order('created_at'),
             () => supabaseClient.from('inventory_logs')
                 .select('id, created_at, qty, unit_price_at_time, menu_item_id, notes, ingredients(name)')
@@ -622,12 +684,18 @@ async function loadFinancialReport() {
         const unknownPurchases = unknownPurchasesResult.data || [];
 
         const revenue = sales.reduce((sum, sale) => sum + Number(sale.total_amount), 0);
+        const platformFeeTotal = sales.reduce((sum, sale) => sum + Number(sale.platform_fee), 0);
+        const platformReceivable = sales.reduce((sum, sale) =>
+            sum + (['GOFOOD', 'GRABFOOD'].includes(sale.payment_method)
+                ? Number(sale.total_amount) - Number(sale.platform_fee)
+                : 0), 0);
         const cogs = cogsLogs.reduce((sum, log) => sum + Number(log.qty) * Number(log.unit_price_at_time), 0);
         const spoilageLoss = spoiledLogs.reduce((sum, log) => sum + Number(log.qty) * Number(log.unit_price_at_time), 0);
         const grossProfit = revenue - cogs;
         const expenseTotal = expenses.reduce((sum, expense) => sum + Number(expense.amount), 0);
-        const netProfit = grossProfit - expenseTotal - spoilageLoss;
-        const cashIn = revenue;
+        const netProfit = grossProfit - expenseTotal - spoilageLoss - platformFeeTotal;
+        const cashIn = sales.reduce((sum, sale) =>
+            sum + (['CASH', 'QRIS'].includes(sale.payment_method) ? Number(sale.total_amount) : 0), 0);
         const purchaseCashOut = paidPurchases.reduce((sum, log) =>
             sum + Number(log.qty) * Number(log.unit_price_at_time), 0);
         const expenseCashOut = paidExpenses.reduce((sum, expense) => sum + Number(expense.amount), 0);
@@ -641,6 +709,7 @@ async function loadFinancialReport() {
         document.getElementById('report-net-cash-flow').classList.toggle('text-danger', cashIn - cashOut < 0);
         document.getElementById('report-cash-in').innerText = `Rp ${formatRp(cashIn)}`;
         document.getElementById('report-cash-out').innerText = `Rp ${formatRp(cashOut)}`;
+        document.getElementById('report-platform-receivable').innerText = `Rp ${formatRp(platformReceivable)}`;
 
         const expensesByCategory = new Map();
         expenses.forEach(expense => {
@@ -656,6 +725,7 @@ async function loadFinancialReport() {
             <tr><th>Pendapatan penjualan</th><td class="report-amount">Rp ${formatRp(revenue)}</td></tr>
             <tr><td>(-) Harga Pokok Penjualan (HPP)</td><td class="report-amount">Rp ${formatRp(cogs)}</td></tr>
             <tr class="report-total"><th>Laba Kotor</th><td class="report-amount">Rp ${formatRp(grossProfit)}</td></tr>
+            <tr><td>Beban Komisi GoFood / GrabFood</td><td class="report-amount">Rp ${formatRp(platformFeeTotal)}</td></tr>
             <tr><th colspan="2">Biaya Operasional</th></tr>
             ${expenseRows || '<tr><td colspan="2">Belum ada biaya operasional pada periode ini.</td></tr>'}
             <tr><td>Kerugian Persediaan Basi / Kedaluwarsa</td><td class="report-amount">Rp ${formatRp(spoilageLoss)}</td></tr>
@@ -663,9 +733,9 @@ async function loadFinancialReport() {
         `;
 
         const cashEntries = [
-            ...sales.map(sale => ({
+            ...sales.filter(sale => ['CASH', 'QRIS'].includes(sale.payment_method)).map(sale => ({
                 date: sale.created_at,
-                description: `Penjualan #${sale.id}`,
+                description: `Penjualan #${sale.id} (${sale.payment_method === 'CASH' ? 'Tunai' : 'QRIS / Bank Transfer'})`,
                 inflow: Number(sale.total_amount),
                 outflow: 0
             })),
@@ -736,8 +806,8 @@ async function loadFinancialReport() {
         const unknownPurchaseTotal = unknownPurchases.reduce((sum, purchase) =>
             sum + Number(purchase.qty) * Number(purchase.unit_price_at_time), 0);
         document.getElementById('report-cash-warning').innerText = unknownPurchases.length
-            ? `${unknownPurchases.length} pembelian stok lama senilai Rp ${formatRp(unknownPurchaseTotal)} tidak memiliki status pembayaran, sehingga tidak dimasukkan ke arus kas.`
-            : 'Penjualan kasir dianggap langsung diterima. Pembelian stok dan biaya operasional masuk arus kas pada tanggal pembayarannya.';
+            ? `${unknownPurchases.length} pembelian stok lama senilai Rp ${formatRp(unknownPurchaseTotal)} tidak memiliki status pembayaran, sehingga tidak dimasukkan ke arus kas. Penjualan GoFood/GrabFood dicatat sebagai piutang, bukan kas masuk.`
+            : 'Penjualan Tunai/QRIS dihitung sebagai kas masuk. Penjualan GoFood/GrabFood menjadi piutang sebesar nilai setelah komisi; komisi dicatat sebagai beban, bukan kas keluar. Pembelian stok dan biaya operasional masuk arus kas pada tanggal pembayarannya.';
     } catch (error) {
         console.error('Gagal memuat laporan keuangan:', error);
         profitLossBody.innerHTML = '<tr><td colspan="2">Laporan gagal dimuat.</td></tr>';
@@ -799,6 +869,7 @@ document.getElementById('payables-table').addEventListener('click', async (event
 loadSuppliersAndMenus();
 loadInventory();
 loadJournalAndAnalysis();
+loadSalesJournal();
 renderPosCart();
 const reportToday = new Date();
 document.getElementById('report-start-date').value = localDateValue(new Date(reportToday.getFullYear(), reportToday.getMonth(), 1));

@@ -41,7 +41,12 @@ Sistem ini tidak hanya mencatat data, tetapi juga memiliki fungsi analitik dan p
    - Dilengkapi filter *dropdown* untuk mengisolasi mutasi dan melihat pergerakan/saldo pada satu jenis bahan baku spesifik (Buku Besar Pembantu).
    - Label visual/Badge khusus (IN/OUT) untuk memudahkan auditor membaca pergerakan barang.
 
-5. **🖨️ Ekspor & Cetak Dokumen Resmi**
+5. **🛒 Kasir Multi-Payment**
+   - Mendukung Tunai, QRIS/Bank Transfer, GoFood, dan GrabFood.
+   - GoFood dan GrabFood otomatis dikenakan komisi platform 20%, dicatat sebagai beban; sisa penjualan dicatat sebagai piutang platform.
+   - Jurnal penjualan menyimpan metode pembayaran dan komisi, serta menampilkan akun debit/kredit.
+
+6. **🖨️ Ekspor & Cetak Dokumen Resmi**
    - **Cetak PDF:** Layout khusus pencetakan dokumen formal (otomatis menghilangkan elemen antarmuka seperti sidebar dan tombol saat dicetak).
    - **Download Excel (.csv):** Mengunduh seluruh riwayat *Audit Trail* ke dalam format CSV untuk analisis lanjutan menggunakan Spreadsheet.
 
@@ -82,7 +87,7 @@ Jika ingin mengembangkan atau menjalankan aplikasi ini di komputer lokal:
 2. Buka folder `SistemPizza` di *code editor* pilihanmu (misalnya VS Code).
 3. Karena aplikasi ini menggunakan Vanilla JS dengan CDN Supabase, kamu cukup membuka file `index.html` menggunakan *browser* (direkomendasikan menggunakan ekstensi **Live Server** di VS Code).
 4. *Catatan:* Konfigurasi URL dan API Key Supabase sudah diinisialisasi secara statis di dalam file `app.js` menggunakan *Anon Key*.
-5. Untuk database Supabase yang sudah memiliki skema dan data awal aplikasi, jalankan `Backend/suppliers_and_spoilage.sql` setelah migrasi `point_of_sale.sql` dan `financial_reports.sql`. Migrasi tersebut menambahkan tiga supplier contoh per bahan dengan harga tetap yang berbeda.
+5. Untuk database Supabase yang sudah memiliki skema dan data awal aplikasi, jalankan migrasi SQL di folder `Backend` sesuai urutan: `point_of_sale.sql`, `financial_reports.sql`, `suppliers_and_spoilage.sql`, lalu `multi_payment.sql`. Migrasi terakhir menambahkan dukungan metode pembayaran kasir dan komisi platform.
 
 ---
 *Dibuat untuk memenuhi tugas Ujian Tengah Semester (UTS) / Evaluasi Proyek Mata Kuliah Sistem Informasi Akuntansi.*

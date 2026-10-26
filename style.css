@@ -74,11 +74,11 @@ input[readonly] { background: #f1f5f9; color: #475569; cursor: not-allowed; }
 
 /* Kasir & resep */
 .pos-add-card { max-width: none; margin: 0 0 20px; }
-#pos-add-form { display: grid; grid-template-columns: 2fr 1fr auto; gap: 16px; align-items: end; }
+#pos-add-form { display: grid; grid-template-columns: 2fr 0.8fr 1.3fr auto; gap: 16px; align-items: end; }
 #pos-add-form .form-group, .recipe-form .form-group { margin-bottom: 0; }
 .pos-cart-card h3 { margin-bottom: 14px; color: #1e293b; }
 .table-scroll { width: 100%; overflow-x: auto; }
-.pos-checkout { display: flex; justify-content: flex-end; align-items: center; gap: 20px; margin-top: 20px; }
+.pos-checkout { display: flex; justify-content: flex-end; align-items: center; gap: 20px; margin-top: 20px; flex-wrap: wrap; }
 .pos-checkout strong { font-size: 1.1rem; }
 .recipe-card { max-width: 900px; }
 .recipe-form { display: grid; grid-template-columns: 1fr 1fr auto; gap: 16px; align-items: end; margin-bottom: 24px; }
@@ -90,7 +90,7 @@ input[readonly] { background: #f1f5f9; color: #475569; cursor: not-allowed; }
 .report-filter-card, .report-card { margin-bottom: 20px; }
 .report-date-filter { display: grid; grid-template-columns: 1fr 1fr auto auto; gap: 14px; align-items: end; }
 .report-date-filter .form-group { margin-bottom: 0; }
-.report-summary-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; margin-bottom: 20px; }
+.report-summary-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 16px; margin-bottom: 20px; }
 .report-summary-card h3 { color: #64748b; font-size: 0.9rem; font-weight: 600; }
 .report-summary-card strong { display: block; margin-top: 8px; color: #0f172a; font-size: 1.4rem; overflow-wrap: anywhere; }
 .report-card h2 { margin-bottom: 16px; color: #1e293b; font-size: 1.15rem; }
@@ -124,6 +124,6 @@ input[readonly] { background: #f1f5f9; color: #475569; cursor: not-allowed; }
     #pos-add-form, .recipe-form { grid-template-columns: 1fr; }
     .pos-checkout { align-items: stretch; flex-direction: column; }
     .pos-checkout .btn { justify-content: center; }
+    #pos-add-form, .report-date-filter, .expense-form { grid-template-columns: 1fr; }
     .report-summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-    .report-date-filter, .expense-form { grid-template-columns: 1fr; }
 }

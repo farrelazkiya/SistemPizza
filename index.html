@@ -108,6 +108,15 @@
                             <label for="pos-quantity">Jumlah</label>
                             <input type="number" id="pos-quantity" min="1" step="1" value="1" required>
                         </div>
+                        <div class="form-group">
+                            <label for="pos-payment-method">Metode Pembayaran</label>
+                            <select id="pos-payment-method" required>
+                                <option value="CASH">Tunai (Kas)</option>
+                                <option value="QRIS">QRIS / Bank Transfer</option>
+                                <option value="GOFOOD">GoFood (Komisi 20%)</option>
+                                <option value="GRABFOOD">GrabFood (Komisi 20%)</option>
+                            </select>
+                        </div>
                         <button type="submit" class="btn">➕ Tambahkan ke Keranjang</button>
                     </form>
                 </div>
@@ -126,6 +135,7 @@
                     </div>
                     <div class="pos-checkout">
                         <strong>Total: <span id="pos-total">Rp 0</span></strong>
+                        <span id="pos-settlement-preview">Diterima: Rp 0</span>
                         <button type="button" id="pos-checkout-button" class="btn" disabled>✅ Simpan Penjualan</button>
                     </div>
                 </div>
@@ -254,6 +264,19 @@
                         </tbody>
                     </table>
                 </div>
+                <div class="card report-card">
+                    <h2>Jurnal Penjualan</h2>
+                    <div class="table-scroll">
+                        <table class="table">
+                            <thead>
+                                <tr><th>Tanggal</th><th>No. Penjualan</th><th>Metode</th><th>Pendapatan</th><th>Beban Komisi</th><th>Diterima / Piutang</th><th>Jurnal</th></tr>
+                            </thead>
+                            <tbody id="sales-journal-table">
+                                <tr><td colspan="7">Memuat transaksi penjualan...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
             </section>
 
             <!-- HALAMAN 6: LAPORAN KEUANGAN -->
@@ -297,6 +320,10 @@
                     <div class="card report-summary-card">
                         <h3>Arus Kas Bersih</h3>
                         <strong id="report-net-cash-flow">Rp 0</strong>
+                    </div>
+                    <div class="card report-summary-card">
+                        <h3>Piutang Ojol dari Penjualan</h3>
+                        <strong id="report-platform-receivable">Rp 0</strong>
                     </div>
                 </div>
 
