@@ -32,9 +32,9 @@ Sistem ini tidak hanya mencatat data, tetapi juga memiliki fungsi analitik dan p
 
 3. **📝 Pencatatan Jurnal Mutasi & *Audit Trail***
    - Formulir input mutasi barang yang menerapkan *traceability* dokumen sumber.
-   - **Barang Masuk (IN):** Wajib menautkan entitas **Supplier** (Bukti Pembelian/Nota).
-   - **Barang Keluar (OUT):** Wajib menautkan entitas **Menu Pizza** (Bukti Produksi/Pemakaian).
-   - Mencegah fraud persediaan dengan memastikan tidak ada barang yang keluar/masuk tanpa keterangan pihak terkait.
+   - **Barang Masuk (IN):** Setiap bahan memiliki tiga pilihan supplier terkait dengan harga tetap yang berbeda; pilihan supplier dan harga otomatis menyesuaikan bahan yang dipilih.
+   - **Barang Keluar (OUT):** Mutasi manual hanya untuk bahan basi/kedaluwarsa dan wajib menyertakan alasan. Pemakaian produksi tetap dicatat otomatis dari resep saat penjualan.
+   - Validasi database mencegah stok keluar melebihi stok yang tersedia.
 
 4. **📖 Buku Besar Pembantu Persediaan (*Subsidiary Ledger*)**
    - Laporan Jurnal Umum otomatis menggunakan **Metode Perpetual**.
@@ -58,13 +58,16 @@ Sistem ini tidak hanya mencatat data, tetapi juga memiliki fungsi analitik dan p
 
 ## 🗄️ Skema Database (Relational Model)
 
-Database dirancang dengan konsep *Relational Database Management System* (RDBMS) yang saling terhubung untuk mencegah data ganda dan menjaga integritas pencatatan. Terdapat 5 tabel utama:
+Database dirancang dengan konsep *Relational Database Management System* (RDBMS) yang saling terhubung untuk mencegah data ganda dan menjaga integritas pencatatan. Selain tabel master dan persediaan, fitur aplikasi menggunakan:
 
 1. `categories`: Tabel master kategori bahan baku.
 2. `suppliers`: Tabel pihak ketiga (pemasok) untuk *audit trail* barang masuk.
 3. `menu_items`: Tabel produk akhir untuk *audit trail* pembebanan HPP.
 4. `ingredients`: Tabel master kartu stok (menyimpan sisa kuantitas aktual, harga unit, dan batas minimum).
 5. `inventory_logs`: Tabel riwayat jurnal persediaan yang merekam setiap transaksi secara permanen (*immutable*).
+6. `supplier_ingredients`: Daftar bahan yang dipasok beserta harga tetap per supplier.
+7. `menu_recipes`, `sales`, dan `sale_items`: Resep, transaksi kasir, dan rincian penjualan.
+8. `operating_expenses`: Catatan biaya operasional dan status pembayarannya.
 
 ---
 
@@ -79,6 +82,7 @@ Jika ingin mengembangkan atau menjalankan aplikasi ini di komputer lokal:
 2. Buka folder `SistemPizza` di *code editor* pilihanmu (misalnya VS Code).
 3. Karena aplikasi ini menggunakan Vanilla JS dengan CDN Supabase, kamu cukup membuka file `index.html` menggunakan *browser* (direkomendasikan menggunakan ekstensi **Live Server** di VS Code).
 4. *Catatan:* Konfigurasi URL dan API Key Supabase sudah diinisialisasi secara statis di dalam file `app.js` menggunakan *Anon Key*.
+5. Untuk database Supabase yang sudah memiliki skema dan data awal aplikasi, jalankan `Backend/suppliers_and_spoilage.sql` setelah migrasi `point_of_sale.sql` dan `financial_reports.sql`. Migrasi tersebut menambahkan tiga supplier contoh per bahan dengan harga tetap yang berbeda.
 
 ---
 *Dibuat untuk memenuhi tugas Ujian Tengah Semester (UTS) / Evaluasi Proyek Mata Kuliah Sistem Informasi Akuntansi.*

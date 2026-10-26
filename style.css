@@ -49,7 +49,9 @@ body { background: #f1f5f9; color: #0f172a; line-height: 1.5; }
 .form-card { max-width: 600px; margin: 0 auto; }
 .form-group { margin-bottom: 20px; }
 label { display: block; font-weight: 600; margin-bottom: 8px; font-size: 0.9rem; color: #334155; }
-input, select { width: 100%; padding: 12px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 0.95rem; }
+input, select, textarea { width: 100%; padding: 12px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 0.95rem; }
+textarea { resize: vertical; }
+input[readonly] { background: #f1f5f9; color: #475569; cursor: not-allowed; }
 .filter-select { width: 250px; padding: 10px; }
 
 .btn { padding: 10px 18px; background: #ef4444; color: white; border: none; border-radius: 8px; font-weight: 600; cursor: pointer; transition: 0.2s; display: inline-flex; align-items: center; gap: 8px; }

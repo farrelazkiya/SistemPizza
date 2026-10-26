@@ -27,44 +27,31 @@ function switchPage(pageId, element) {
 
 function toggleDynamicFields() {
     const type = document.getElementById('type').value;
-    document.getElementById('inventory-unit-price').required = type === 'IN';
+    const isPurchase = type === 'IN';
+    document.getElementById('inventory-unit-price').required = isPurchase;
+    document.getElementById('inventory-waste-reason').required = !isPurchase;
     if (type === 'IN') {
         document.getElementById('group-supplier').classList.remove('hidden');
         document.getElementById('group-payment').classList.remove('hidden');
         document.getElementById('group-purchase-price').classList.remove('hidden');
-        document.getElementById('group-menu').classList.add('hidden');
+        document.getElementById('group-waste-reason').classList.add('hidden');
     } else {
         document.getElementById('group-supplier').classList.add('hidden');
         document.getElementById('group-payment').classList.add('hidden');
         document.getElementById('group-purchase-price').classList.add('hidden');
-        document.getElementById('group-menu').classList.remove('hidden');
+        document.getElementById('group-waste-reason').classList.remove('hidden');
     }
 }
 
 async function loadSuppliersAndMenus() {
-    const { data: suppliers, error: supplierError } = await supabaseClient.from('suppliers').select('*');
     const { data: menus, error: menuError } = await supabaseClient.from('menu_items').select('*');
-    if (supplierError) {
-        console.error('Gagal memuat supplier:', supplierError);
-        document.getElementById('supplier_id').innerHTML = '<option value="">Gagal memuat supplier</option>';
-    }
-    
-    let supHTML = '<option value="">-- Pilih Supplier --</option>';
-    if (suppliers && !supplierError) suppliers.forEach(s => supHTML += `<option value="${s.id}">${s.name}</option>`);
-    if (!supplierError) document.getElementById('supplier_id').innerHTML = supHTML;
-
     if (menuError) {
         console.error('Gagal memuat menu:', menuError);
-        document.getElementById('menu_item_id').innerHTML = '<option value="">Gagal memuat menu</option>';
         document.getElementById('pos-menu-select').innerHTML = '<option value="">Gagal memuat menu</option>';
         document.getElementById('recipe-menu-select').innerHTML = '<option value="">Gagal memuat menu</option>';
         alert(`Gagal memuat menu: ${menuError.message}`);
         return;
     }
-
-    let menuHTML = '<option value="">-- Pilih Menu Pizza --</option>';
-    if (menus) menus.forEach(m => menuHTML += `<option value="${m.id}">${m.name}</option>`);
-    document.getElementById('menu_item_id').innerHTML = menuHTML;
 
     menuItems = menus || [];
     const posMenuSelect = document.getElementById('pos-menu-select');
@@ -87,6 +74,43 @@ async function loadSuppliersAndMenus() {
         (ingredients || []).map(ingredient =>
             `<option value="${ingredient.id}">${escapeHtml(ingredient.name)} (${escapeHtml(ingredient.unit)})</option>`
         ).join('');
+}
+
+async function loadIngredientSuppliers() {
+    const ingredientId = document.getElementById('ingredient_id').value;
+    const supplierSelect = document.getElementById('supplier_id');
+    const priceInput = document.getElementById('inventory-unit-price');
+    supplierSelect.innerHTML = '<option value="">Memuat supplier...</option>';
+    priceInput.value = '';
+    if (!ingredientId) {
+        supplierSelect.innerHTML = '<option value="">-- Pilih bahan baku dahulu --</option>';
+        return;
+    }
+
+    const { data, error } = await supabaseClient
+        .from('supplier_ingredients')
+        .select('supplier_id, fixed_unit_price, suppliers(name)')
+        .eq('ingredient_id', Number(ingredientId))
+        .order('supplier_id');
+    if (error) {
+        supplierSelect.innerHTML = '<option value="">Gagal memuat supplier</option>';
+        console.error('Gagal memuat supplier bahan:', error);
+        alert(`Gagal memuat supplier bahan: ${error.message}`);
+        return;
+    }
+    if (!data || data.length === 0) {
+        supplierSelect.innerHTML = '<option value="">Supplier untuk bahan ini belum diatur</option>';
+        return;
+    }
+
+    supplierSelect.innerHTML = '<option value="">-- Pilih Supplier --</option>' +
+        data.map(item =>
+            `<option value="${item.supplier_id}" data-price="${item.fixed_unit_price}">${escapeHtml(item.suppliers.name)} - Rp ${formatRp(item.fixed_unit_price)}</option>`
+        ).join('');
+    if (data.length === 1) {
+        supplierSelect.value = String(data[0].supplier_id);
+        priceInput.value = data[0].fixed_unit_price;
+    }
 }
 
 function renderPosCart() {
@@ -274,6 +298,16 @@ async function loadJournalAndAnalysis(filterIngredientId = '') {
                     <td>-<br>Rp ${formatRp(totalVal)}</td>
                 </tr>
             `;
+        } else if (log.movement_reason === 'SPOILED') {
+            journalBody.innerHTML += `
+                <tr>
+                    <td>${dateStr}</td>
+                    <td><span class="badge badge-out">RUSAK</span></td>
+                    <td><b>Kerugian Persediaan Basi</b> - ${escapeHtml(log.notes || 'Barang basi / kedaluwarsa')}<br><div class="acc-kredit">Persediaan (${escapeHtml(log.ingredients.name)})</div></td>
+                    <td>Rp ${formatRp(totalVal)}<br>-</td>
+                    <td>-<br>Rp ${formatRp(totalVal)}</td>
+                </tr>
+            `;
         } else {
             journalBody.innerHTML += `
                 <tr>
@@ -304,18 +338,16 @@ document.getElementById('transaction-form').addEventListener('submit', async (e)
     const qty = Number(document.getElementById('qty').value);
     
     const supplierId = document.getElementById('supplier_id').value || null;
-    const menuItemId = document.getElementById('menu_item_id').value || null;
     const paymentMethod = type === 'IN'
         ? document.getElementById('inventory-payment-method').value
         : null;
-    const unitPrice = type === 'IN'
-        ? Number(document.getElementById('inventory-unit-price').value)
+    const reason = type === 'OUT'
+        ? document.getElementById('inventory-waste-reason').value.trim()
         : null;
 
     if (!ingredientId || !Number.isFinite(qty) || qty <= 0) return alert("Pilih bahan dan masukkan kuantitas yang valid!");
     if (type === 'IN' && !supplierId) return alert("Pilih Supplier terlebih dahulu!");
-    if (type === 'IN' && (!Number.isFinite(unitPrice) || unitPrice < 0)) return alert("Masukkan harga beli per satuan yang valid!");
-    if (type === 'OUT' && !menuItemId) return alert("Pilih Menu Pizza terlebih dahulu!");
+    if (type === 'OUT' && !reason) return alert("Masukkan alasan persediaan basi atau kedaluwarsa!");
 
     const button = document.querySelector('#transaction-form button[type="submit"]');
     button.innerText = "⏳ Menyimpan...";
@@ -325,16 +357,17 @@ document.getElementById('transaction-form').addEventListener('submit', async (e)
             p_ingredient_id: ingredientId,
             p_type: type,
             p_qty: qty,
-            p_supplier_id: supplierId ? Number(supplierId) : null,
-            p_menu_item_id: menuItemId ? Number(menuItemId) : null,
+            p_supplier_id: type === 'IN' && supplierId ? Number(supplierId) : null,
+            p_menu_item_id: null,
             p_payment_method: paymentMethod,
-            p_unit_price: unitPrice
+            p_reason: reason
         });
         if (error) throw error;
 
         alert("✅ Transaksi Jurnal Berhasil Disimpan!");
         document.getElementById('transaction-form').reset();
         toggleDynamicFields();
+        await loadIngredientSuppliers();
         await Promise.all([
             loadInventory(),
             loadJournalAndAnalysis(document.getElementById('filter-ingredient').value)
@@ -350,6 +383,10 @@ document.getElementById('transaction-form').addEventListener('submit', async (e)
 });
 
 document.getElementById('ingredient_id').addEventListener('change', (event) => {
+    loadIngredientSuppliers();
+});
+
+document.getElementById('supplier_id').addEventListener('change', (event) => {
     const selectedOption = event.currentTarget.options[event.currentTarget.selectedIndex];
     document.getElementById('inventory-unit-price').value = selectedOption.dataset.price || '';
 });
@@ -540,7 +577,12 @@ async function loadFinancialReport() {
                 .gte('created_at', start).lt('created_at', end).order('created_at'),
             () => supabaseClient.from('inventory_logs')
                 .select('id, created_at, qty, unit_price_at_time, menu_item_id, notes, ingredients(name)')
-                .eq('type', 'OUT').gte('created_at', start).lt('created_at', end).order('created_at'),
+                .eq('type', 'OUT').is('movement_reason', null)
+                .gte('created_at', start).lt('created_at', end).order('created_at'),
+            () => supabaseClient.from('inventory_logs')
+                .select('id, created_at, qty, unit_price_at_time, notes')
+                .eq('type', 'OUT').eq('movement_reason', 'SPOILED')
+                .gte('created_at', start).lt('created_at', end).order('created_at'),
             () => supabaseClient.from('operating_expenses')
                 .select('id, description, category, amount, payment_method, created_at, paid_at')
                 .gte('created_at', start).lt('created_at', end).order('created_at'),
@@ -561,16 +603,17 @@ async function loadFinancialReport() {
                 .eq('type', 'IN').is('payment_method', null)
                 .gte('created_at', start).lt('created_at', end)
         ];
-        const [salesResult, cogsResult, expensesResult, purchasesPaidResult,
+        const [salesResult, cogsResult, spoiledResult, expensesResult, purchasesPaidResult,
             expensesPaidResult, unpaidPurchasesResult, unpaidExpensesResult,
             unknownPurchasesResult] = await Promise.all(queryFactories.map(fetchAllReportRows));
-        const results = [salesResult, cogsResult, expensesResult, purchasesPaidResult,
+        const results = [salesResult, cogsResult, spoiledResult, expensesResult, purchasesPaidResult,
             expensesPaidResult, unpaidPurchasesResult, unpaidExpensesResult, unknownPurchasesResult];
         const failedResult = results.find(result => result.error);
         if (failedResult) throw failedResult.error;
 
         const sales = salesResult.data || [];
         const cogsLogs = cogsResult.data || [];
+        const spoiledLogs = spoiledResult.data || [];
         const expenses = expensesResult.data || [];
         const paidPurchases = purchasesPaidResult.data || [];
         const paidExpenses = expensesPaidResult.data || [];
@@ -580,9 +623,10 @@ async function loadFinancialReport() {
 
         const revenue = sales.reduce((sum, sale) => sum + Number(sale.total_amount), 0);
         const cogs = cogsLogs.reduce((sum, log) => sum + Number(log.qty) * Number(log.unit_price_at_time), 0);
+        const spoilageLoss = spoiledLogs.reduce((sum, log) => sum + Number(log.qty) * Number(log.unit_price_at_time), 0);
         const grossProfit = revenue - cogs;
         const expenseTotal = expenses.reduce((sum, expense) => sum + Number(expense.amount), 0);
-        const netProfit = grossProfit - expenseTotal;
+        const netProfit = grossProfit - expenseTotal - spoilageLoss;
         const cashIn = revenue;
         const purchaseCashOut = paidPurchases.reduce((sum, log) =>
             sum + Number(log.qty) * Number(log.unit_price_at_time), 0);
@@ -614,6 +658,7 @@ async function loadFinancialReport() {
             <tr class="report-total"><th>Laba Kotor</th><td class="report-amount">Rp ${formatRp(grossProfit)}</td></tr>
             <tr><th colspan="2">Biaya Operasional</th></tr>
             ${expenseRows || '<tr><td colspan="2">Belum ada biaya operasional pada periode ini.</td></tr>'}
+            <tr><td>Kerugian Persediaan Basi / Kedaluwarsa</td><td class="report-amount">Rp ${formatRp(spoilageLoss)}</td></tr>
             <tr class="report-total"><th>Laba / (Rugi) Bersih</th><td class="report-amount">Rp ${formatRp(netProfit)}</td></tr>
         `;
 
