@@ -25,12 +25,16 @@
                 <span class="version-badge">v2.0 Enterprise</span>
             </div>
             <ul class="sidebar-menu">
-                <li class="active" onclick="switchPage('page-dashboard', this)"><i data-lucide="layout-dashboard"></i><span>Dashboard Utama</span></li>
-                <li onclick="switchPage('page-kasir', this)"><i data-lucide="shopping-cart"></i><span>Kasir & Penjualan</span></li>
-                <li onclick="switchPage('page-resep', this)"><i data-lucide="notebook-tabs"></i><span>Kelola Resep</span></li>
-                <li onclick="switchPage('page-transaksi', this)"><i data-lucide="clipboard-list"></i><span>Catat Transaksi</span></li>
-                <li onclick="switchPage('page-jurnal', this)"><i data-lucide="book-open-check"></i><span>Buku Besar & Laporan</span></li>
-                <li onclick="switchPage('page-laporan', this)"><i data-lucide="chart-no-axes-combined"></i><span>Laba Rugi & Arus Kas</span></li>
+                <li class="nav-section-title" aria-hidden="true">Dashboard</li>
+                <li class="active" title="Dashboard Utama" aria-label="Dashboard Utama" onclick="switchPage('page-dashboard', this)"><i data-lucide="layout-dashboard"></i><span>Dashboard Utama</span></li>
+                <li class="nav-section-title" aria-hidden="true">Operasional</li>
+                <li title="Kasir & Penjualan" aria-label="Kasir & Penjualan" onclick="switchPage('page-kasir', this)"><i data-lucide="shopping-cart"></i><span>Kasir & Penjualan</span></li>
+                <li title="Kelola Resep" aria-label="Kelola Resep" onclick="switchPage('page-resep', this)"><i data-lucide="notebook-tabs"></i><span>Kelola Resep</span></li>
+                <li class="nav-section-title" aria-hidden="true">Persediaan</li>
+                <li title="Catat Transaksi" aria-label="Catat Transaksi" onclick="switchPage('page-transaksi', this)"><i data-lucide="clipboard-list"></i><span>Catat Transaksi</span></li>
+                <li class="nav-section-title" aria-hidden="true">Keuangan</li>
+                <li title="Buku Besar & Laporan" aria-label="Buku Besar & Laporan" onclick="switchPage('page-jurnal', this)"><i data-lucide="book-open-check"></i><span>Buku Besar & Laporan</span></li>
+                <li title="Laba Rugi & Arus Kas" aria-label="Laba Rugi & Arus Kas" onclick="switchPage('page-laporan', this)"><i data-lucide="chart-no-axes-combined"></i><span>Laba Rugi & Arus Kas</span></li>
             </ul>
             <div class="sidebar-footer"><span class="sidebar-footer-dot"></span>Operasional bisnis</div>
         </aside>

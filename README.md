@@ -70,9 +70,9 @@ Sistem ini tidak hanya mencatat data, tetapi juga memiliki fungsi analitik dan p
 
 ## ✨ Antarmuka Enterprise
 
-- Navigasi sidebar dengan ikon, penanda halaman aktif, breadcrumb dinamis, tanggal/waktu lokal, dan status koneksi Supabase.
+- Navigasi sidebar merah tomat dengan ikon konsisten, menu terkelompok (Dashboard, Operasional, Persediaan, Keuangan), penanda halaman aktif, breadcrumb dinamis, tanggal/waktu lokal, dan status koneksi Supabase.
 - Ringkasan KPI untuk nilai persediaan, HPP hari ini, dan penjualan hari ini; indikator restock dan kedaluwarsa ditampilkan sebagai banner peringatan.
-- Komponen kartu, tabel, badge, input, dan tombol menggunakan gaya responsif dengan fokus aksesibel serta dukungan pengurangan animasi.
+- Komponen kartu, tabel, badge, input, dan tombol menggunakan gaya responsif; tabel lebar dapat digulir secara horizontal pada layar kecil, dengan fokus aksesibel serta dukungan pengurangan animasi.
 - Toast non-blocking memberi konfirmasi untuk aksi penting, termasuk penambahan item kasir dan penyimpanan transaksi.
 
 ---
