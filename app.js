@@ -13,12 +13,33 @@ const inventoryLogCost = (log) => {
 // Variabel Global untuk menyimpan instance ChartJS agar bisa di-update
 let inventoryChartInstance = null;
 let menuEngineeringChartInstance = null;
+let menuEngineeringRows = [];
+let menuEngineeringLoadId = 0;
+let menuEngineeringSimulationRow = null;
 let executiveCharts = {};
 let menuItems = [];
 let posCart = [];
+let posCheckoutInProgress = false;
+let posHistoryRequest = 0;
 let inventorySnapshot = null;
 let expiringBatchSnapshot = [];
 let executiveDashboardRequest = 0;
+let accountingJournalEntries = [];
+
+const ACCOUNTING_ACCOUNTS = {
+    cash: 'Kas',
+    bank: 'Bank / QRIS',
+    marketplace: 'Piutang Marketplace',
+    inventory: 'Persediaan Bahan Baku',
+    payable: 'Utang Dagang',
+    revenue: 'Pendapatan Penjualan',
+    cogs: 'Harga Pokok Penjualan',
+    commission: 'Beban Komisi Marketplace',
+    waste: 'Beban Kerusakan Persediaan',
+    stocktakeLoss: 'Beban Selisih Kurang Persediaan',
+    stocktakeGain: 'Keuntungan Penyesuaian Persediaan',
+    unknown: 'Akun Penyeimbang Transaksi Lama'
+};
 
 function showToast(message, type = 'success') {
     const region = document.getElementById('toast-region');
@@ -80,6 +101,10 @@ function switchPage(pageId, element) {
     element.classList.add('active');
     document.getElementById('current-page-title').textContent = activePage.querySelector('h1')?.textContent || 'Workspace';
     if (pageId === 'page-laporan') loadMenuEngineering();
+    if (pageId === 'page-jurnal') {
+        loadAccountingJournal();
+        loadSalesJournal();
+    }
 }
 
 function navigateToPage(pageId, focusId = '') {
@@ -121,13 +146,13 @@ function toggleDynamicFields() {
 
 async function loadSuppliersAndMenus() {
     const { data: menus, error: menuError } = await supabaseClient.from('menu_items')
-        .select('id, name, selling_price')
-        .eq('is_available', true)
+        .select('id, name, selling_price, is_available')
         .order('name');
     if (menuError) {
         setDatabaseStatus(navigator.onLine ? 'error' : 'offline');
         console.error('Gagal memuat menu:', menuError);
-        document.getElementById('pos-menu-select').innerHTML = '<option value="">Gagal memuat menu</option>';
+        document.getElementById('pos-menu-grid').innerHTML = `<div class="pos-history-error">Menu gagal dimuat: ${escapeHtml(menuError.message)}</div>`;
+        document.getElementById('pos-menu-count').textContent = 'Menu tidak tersedia';
         document.getElementById('recipe-menu-select').innerHTML = '<option value="">Gagal memuat menu</option>';
         alert(`Gagal memuat menu: ${menuError.message}`);
         return;
@@ -137,11 +162,13 @@ async function loadSuppliersAndMenus() {
     menuItems = menus || [];
     const posMenuSelect = document.getElementById('pos-menu-select');
     const recipeMenuSelect = document.getElementById('recipe-menu-select');
-    const menuOptions = menuItems.map(menu =>
+    const availableMenus = menuItems.filter(menu => menu.is_available !== false);
+    const menuOptions = availableMenus.map(menu =>
         `<option value="${menu.id}">${escapeHtml(menu.name)} - Rp ${formatRp(menu.selling_price)}</option>`
     ).join('');
-    posMenuSelect.innerHTML = `<option value="">-- Pilih Menu Pizza --</option>${menuOptions}`;
+    if (posMenuSelect) posMenuSelect.innerHTML = `<option value="">-- Pilih Menu Pizza --</option>${menuOptions}`;
     recipeMenuSelect.innerHTML = `<option value="">-- Pilih Menu Pizza --</option>${menuOptions}`;
+    renderPosMenuGrid();
 
     const ingredientSelect = document.getElementById('recipe-ingredient-select');
     const { data: ingredients, error } = await supabaseClient.from('ingredients').select('id, name, unit').order('name');
@@ -194,33 +221,203 @@ async function loadIngredientSuppliers() {
     }
 }
 
-function renderPosCart() {
-    const cartBody = document.getElementById('pos-cart-table');
-    const total = posCart.reduce((sum, item) => sum + item.selling_price * item.quantity, 0);
+function paymentMethodLabel(method) {
+    return ({
+        CASH: 'Tunai (Kas)',
+        QRIS: 'QRIS / Bank Transfer',
+        GOFOOD: 'GoFood',
+        GRABFOOD: 'GrabFood'
+    })[method] || escapeHtml(method);
+}
+
+function posTotal() {
+    return posCart.reduce((sum, item) => sum + item.selling_price * item.quantity, 0);
+}
+
+function posPlatformFee(total) {
+    return Math.round((total * 0.2 + Number.EPSILON) * 100) / 100;
+}
+
+function renderPosMenuGrid() {
+    const grid = document.getElementById('pos-menu-grid');
+    if (!grid) return;
+    const search = document.getElementById('pos-menu-search').value.trim().toLocaleLowerCase('id-ID');
+    const filteredMenus = menuItems.filter(menu => menu.name.toLocaleLowerCase('id-ID').includes(search));
+    const availableCount = filteredMenus.filter(menu => menu.is_available !== false).length;
+    document.getElementById('pos-menu-count').textContent = `${availableCount} menu tersedia${search ? ` · ${filteredMenus.length} hasil` : ''}`;
+    if (!filteredMenus.length) {
+        grid.innerHTML = '<div class="pos-menu-empty"><i data-lucide="search-x"></i><strong>Menu tidak ditemukan</strong><span>Coba kata pencarian yang berbeda.</span></div>';
+        if (window.lucide) window.lucide.createIcons();
+        return;
+    }
+    grid.innerHTML = filteredMenus.map(menu => {
+        const available = menu.is_available !== false;
+        return `
+            <article class="pos-menu-card${available ? '' : ' is-unavailable'}">
+                <div class="pos-menu-art" aria-hidden="true"><i data-lucide="pizza"></i></div>
+                <div class="pos-menu-card-body">
+                    <span class="pos-menu-availability ${available ? 'is-available' : 'is-unavailable'}"><span></span>${available ? 'Tersedia' : 'Tidak tersedia'}</span>
+                    <h3>${escapeHtml(menu.name)}</h3>
+                    <strong>Rp ${formatRp(menu.selling_price)}</strong>
+                    <button type="button" class="btn pos-add-menu" data-menu-id="${menu.id}" ${available && !posCheckoutInProgress ? '' : 'disabled'}>
+                        <i data-lucide="plus"></i>${available ? (posCheckoutInProgress ? 'Menyimpan...' : 'Tambah') : 'Tidak tersedia'}
+                    </button>
+                </div>
+            </article>
+        `;
+    }).join('');
+    if (window.lucide) window.lucide.createIcons();
+}
+
+function updatePosPaymentSummary() {
+    const total = posTotal();
     const paymentMethod = document.getElementById('pos-payment-method').value;
-    const platformFee = ['GOFOOD', 'GRABFOOD'].includes(paymentMethod) ? Math.round(total * 0.2) : 0;
+    const platformFee = ['GOFOOD', 'GRABFOOD'].includes(paymentMethod) ? posPlatformFee(total) : 0;
+    const cashFields = document.getElementById('pos-cash-fields');
+    const cashInput = document.getElementById('pos-cash-received');
+    const cash = Number(cashInput.value);
+    const isCash = paymentMethod === 'CASH';
+    cashFields.classList.toggle('hidden', !isCash);
+    cashInput.required = isCash && total > 0;
+    document.getElementById('pos-change').textContent =
+        `Rp ${formatRp(isCash && Number.isFinite(cash) ? Math.max(0, cash - total) : 0)}`;
+    document.getElementById('pos-settlement-preview').textContent = platformFee
+        ? `Komisi 20%: Rp ${formatRp(platformFee)} · Piutang platform: Rp ${formatRp(total - platformFee)}`
+        : isCash
+            ? (total && cash < total ? `Kurang Rp ${formatRp(total - cash)}` : 'Masukkan jumlah uang yang diterima.')
+            : `Pembayaran ${paymentMethodLabel(paymentMethod)} dicatat melalui kasir.`;
+}
+
+function renderPosCart() {
+    const cart = document.getElementById('pos-cart-items');
+    const total = posCart.reduce((sum, item) => sum + item.selling_price * item.quantity, 0);
+    const count = posCart.reduce((sum, item) => sum + item.quantity, 0);
+    document.getElementById('pos-subtotal').innerText = `Rp ${formatRp(total)}`;
     document.getElementById('pos-total').innerText = `Rp ${formatRp(total)}`;
-    document.getElementById('pos-settlement-preview').innerText = platformFee
-        ? `Piutang setelah komisi 20%: Rp ${formatRp(total - platformFee)}`
-        : `Diterima penuh: Rp ${formatRp(total)}`;
-    document.getElementById('pos-checkout-button').disabled = posCart.length === 0;
+    document.getElementById('pos-cart-count').textContent = `${count} item`;
+    updatePosPaymentSummary();
+    const paymentMethod = document.getElementById('pos-payment-method').value;
+    const cashReceived = Number(document.getElementById('pos-cash-received').value);
+    const validCart = Number.isFinite(total) && total > 0 && posCart.every(item =>
+        Number.isSafeInteger(item.quantity) && item.quantity > 0 &&
+        Number.isFinite(item.selling_price) && item.selling_price >= 0);
+    document.getElementById('pos-checkout-button').disabled = posCart.length === 0 || posCheckoutInProgress ||
+        !validCart || (paymentMethod === 'CASH' &&
+            (!Number.isSafeInteger(cashReceived) || cashReceived < total));
 
     if (posCart.length === 0) {
-        cartBody.innerHTML = '<tr><td colspan="5" class="empty-state"><div class="empty-state-content"><i data-lucide="shopping-basket"></i><strong>Keranjang masih kosong</strong><span>Pilih menu pizza untuk mulai menambahkan pesanan.</span></div></td></tr>';
+        cart.innerHTML = '<div class="pos-cart-empty"><i data-lucide="shopping-basket"></i><strong>Keranjang masih kosong</strong><span>Pilih menu untuk memulai transaksi.</span></div>';
         if (window.lucide) window.lucide.createIcons();
         return;
     }
 
-    cartBody.innerHTML = posCart.map((item, index) => `
-        <tr>
-            <td>${escapeHtml(item.name)}</td>
-            <td>Rp ${formatRp(item.selling_price)}</td>
-            <td>${item.quantity}</td>
-            <td>Rp ${formatRp(item.selling_price * item.quantity)}</td>
-            <td><button type="button" class="btn btn-remove" data-cart-index="${index}">Hapus</button></td>
-        </tr>
+    cart.innerHTML = posCart.map(item => `
+        <article class="pos-cart-item">
+            <div class="pos-cart-item-info"><strong>${escapeHtml(item.name)}</strong><span>Rp ${formatRp(item.selling_price)} / item</span><b>Rp ${formatRp(item.selling_price * item.quantity)}</b></div>
+            <div class="pos-cart-item-controls">
+                <button type="button" class="pos-quantity-button" data-cart-action="decrease" data-menu-id="${item.id}" aria-label="Kurangi ${escapeHtml(item.name)}">−</button>
+                <span>${item.quantity}</span>
+                <button type="button" class="pos-quantity-button" data-cart-action="increase" data-menu-id="${item.id}" aria-label="Tambah ${escapeHtml(item.name)}">+</button>
+                <button type="button" class="pos-remove-item" data-cart-action="remove" data-menu-id="${item.id}" aria-label="Hapus ${escapeHtml(item.name)}"><i data-lucide="trash-2"></i></button>
+            </div>
+        </article>
     `).join('');
     if (window.lucide) window.lucide.createIcons();
+}
+
+function renderPosReceipt(sale) {
+    const content = document.getElementById('pos-receipt-content');
+    content.innerHTML = `
+        <div class="receipt-brand"><span>🍕</span><h2 id="pos-receipt-title">Pizza Craft</h2><p>Struk Penjualan</p></div>
+        <div class="receipt-meta"><div><span>No. Transaksi</span><strong>#${escapeHtml(sale.id)}</strong></div><div><span>Waktu</span><strong>${new Date(sale.createdAt).toLocaleString('id-ID')}</strong></div><div><span>Metode pembayaran</span><strong>${paymentMethodLabel(sale.paymentMethod)}</strong></div></div>
+        <div class="receipt-items">${sale.items.map(item => `<div><span>${escapeHtml(item.name)} × ${item.quantity}</span><strong>Rp ${formatRp(item.selling_price * item.quantity)}</strong></div>`).join('')}</div>
+        <div class="receipt-total"><span>Total</span><strong>Rp ${formatRp(sale.total)}</strong></div>
+        ${sale.paymentMethod === 'CASH' && Number.isFinite(sale.cashReceived)
+            ? `<div class="receipt-cash"><span>Uang diterima (untuk transaksi ini)</span><strong>Rp ${formatRp(sale.cashReceived)}</strong><span>Kembalian</span><strong>Rp ${formatRp(sale.cashReceived - sale.total)}</strong></div>`
+            : sale.paymentMethod === 'CASH'
+                ? '<p class="receipt-cash-unavailable">Nominal uang diterima dan kembalian tidak tersimpan dalam transaksi.</p>'
+                : ''}
+        ${['GOFOOD', 'GRABFOOD'].includes(sale.paymentMethod) ? `<div class="receipt-cash"><span>Komisi platform (20%)</span><strong>Rp ${formatRp(Number.isFinite(sale.platformFee) ? sale.platformFee : posPlatformFee(sale.total))}</strong></div>` : ''}
+        <p class="receipt-thanks">Terima kasih telah berbelanja.</p>
+    `;
+    document.getElementById('pos-new-sale').classList.toggle('hidden', Boolean(sale.fromHistory));
+    document.getElementById('pos-receipt-dialog').showModal();
+}
+
+async function loadPosSalesHistory() {
+    const requestId = ++posHistoryRequest;
+    const body = document.getElementById('pos-history-table');
+    body.innerHTML = '<tr><td colspan="6">Memuat riwayat penjualan...</td></tr>';
+    try {
+        const searchValue = document.getElementById('pos-history-search').value.trim().replace(/^#/, '');
+        const startValue = document.getElementById('pos-history-start').value;
+        const endValue = document.getElementById('pos-history-end').value;
+        if (startValue && endValue && startValue > endValue) throw new Error('Rentang tanggal riwayat tidak valid.');
+        let query = supabaseClient.from('sales')
+            .select('id, total_amount, payment_method, platform_fee, created_at, sale_items(menu_name_at_time, quantity, unit_price)')
+            .order('created_at', { ascending: false });
+        if (searchValue) {
+            if (!/^\d+$/.test(searchValue)) {
+                body.innerHTML = '<tr><td colspan="6">Nomor transaksi hanya boleh berisi angka.</td></tr>';
+                return;
+            }
+            query = query.eq('id', Number(searchValue));
+        } else {
+            if (startValue) {
+                const [year, month, day] = startValue.split('-').map(Number);
+                query = query.gte('created_at', new Date(year, month - 1, day).toISOString());
+            }
+            if (endValue) {
+                const [year, month, day] = endValue.split('-').map(Number);
+                query = query.lt('created_at', new Date(year, month - 1, day + 1).toISOString());
+            }
+        }
+        const paymentMethod = document.getElementById('pos-history-payment').value;
+        if (paymentMethod) query = query.eq('payment_method', paymentMethod);
+        const status = document.getElementById('pos-history-status').value;
+        if (status && status !== 'saved') throw new Error('Status transaksi tidak valid.');
+        const { data, error } = await query.limit(searchValue ? 1 : 100);
+        if (error) throw error;
+        if (requestId !== posHistoryRequest) return;
+        const sales = data || [];
+        body.innerHTML = sales.length ? sales.map(sale => `
+            <tr>
+                <td>${new Date(sale.created_at).toLocaleString('id-ID')}</td><td><strong>#${sale.id}</strong></td>
+                <td>${paymentMethodLabel(sale.payment_method)}</td><td>Rp ${formatRp(sale.total_amount)}</td>
+                <td><span class="pos-saved-badge"><span></span>Tersimpan</span></td>
+                <td><button type="button" class="btn btn-remove pos-history-detail" data-sale-id="${sale.id}">Detail</button></td>
+            </tr>
+        `).join('') : '<tr><td colspan="6" class="pos-history-empty">Tidak ada transaksi sesuai filter.</td></tr>';
+    } catch (error) {
+        if (requestId !== posHistoryRequest) return;
+        body.innerHTML = `<tr><td colspan="6" class="pos-history-error">Riwayat gagal dimuat: ${escapeHtml(error.message)}</td></tr>`;
+        console.error('Gagal memuat riwayat penjualan:', error);
+    }
+}
+
+async function showPosSaleDetails(saleId) {
+    try {
+        const { data, error } = await supabaseClient.from('sales')
+            .select('id, total_amount, payment_method, platform_fee, created_at, sale_items(menu_name_at_time, quantity, unit_price)')
+            .eq('id', saleId).single();
+        if (error) throw error;
+        renderPosReceipt({
+            id: data.id,
+            createdAt: data.created_at,
+            paymentMethod: data.payment_method,
+            platformFee: Number(data.platform_fee),
+            total: Number(data.total_amount),
+            fromHistory: true,
+            items: (data.sale_items || []).map(item => ({
+                name: item.menu_name_at_time,
+                quantity: Number(item.quantity),
+                selling_price: Number(item.unit_price)
+            }))
+        });
+    } catch (error) {
+        console.error('Gagal memuat detail transaksi:', error);
+        showToast(`Detail transaksi gagal dimuat: ${error.message}`, 'error');
+    }
 }
 
 async function loadTodaySalesTotal() {
@@ -284,6 +481,254 @@ async function loadSalesJournal() {
             </tr>
         `;
     }).join('');
+}
+
+function accountingEntry(date, reference, description, lines) {
+    return lines.filter(line => Number(line.debit) !== 0 || Number(line.credit) !== 0).map(line => ({
+        date,
+        reference,
+        description,
+        account: line.account,
+        debit: Number(line.debit) || 0,
+        credit: Number(line.credit) || 0
+    }));
+}
+
+function buildAccountingJournal(sales, inventoryLogs, expenses) {
+    const entries = [];
+    sales.forEach(sale => {
+        const amount = Number(sale.total_amount);
+        const fee = Number(sale.platform_fee) || 0;
+        const platformSale = ['GOFOOD', 'GRABFOOD'].includes(sale.payment_method);
+        const debitAccount = sale.payment_method === 'CASH'
+            ? ACCOUNTING_ACCOUNTS.cash
+            : sale.payment_method === 'QRIS'
+                ? ACCOUNTING_ACCOUNTS.bank
+                : platformSale
+                    ? ACCOUNTING_ACCOUNTS.marketplace
+                    : ACCOUNTING_ACCOUNTS.unknown;
+        const lines = [{ account: debitAccount, debit: amount - (platformSale ? fee : 0), credit: 0 }];
+        if (platformSale && fee > 0) lines.push({ account: ACCOUNTING_ACCOUNTS.commission, debit: fee, credit: 0 });
+        lines.push({ account: ACCOUNTING_ACCOUNTS.revenue, debit: 0, credit: amount });
+        entries.push(...accountingEntry(
+            sale.created_at,
+            `PJ-${sale.id}`,
+            `Penjualan ${paymentMethodLabel(sale.payment_method)} #${sale.id}`,
+            lines
+        ));
+    });
+
+    inventoryLogs.forEach(log => {
+        const amount = inventoryLogCost(log);
+        const reference = `ST-${log.id}`;
+        const ingredientName = log.ingredients?.name || 'Bahan baku';
+        const description = `${log.type === 'IN' ? 'Mutasi stok masuk' : 'Mutasi stok keluar'}: ${ingredientName}${log.notes ? ` — ${log.notes}` : ''}`;
+        if (log.type === 'IN' && log.movement_reason === 'STOCKTAKE_GAIN') {
+            entries.push(...accountingEntry(log.created_at, reference, 'Stok opname selisih lebih', [
+                { account: ACCOUNTING_ACCOUNTS.inventory, debit: amount, credit: 0 },
+                { account: ACCOUNTING_ACCOUNTS.stocktakeGain, debit: 0, credit: amount }
+            ]));
+        } else if (log.type === 'IN' && !log.movement_reason) {
+            const creditAccount = log.payment_method === 'CASH'
+                ? ACCOUNTING_ACCOUNTS.cash
+                : log.payment_method === 'CREDIT'
+                    ? ACCOUNTING_ACCOUNTS.payable
+                    : ACCOUNTING_ACCOUNTS.unknown;
+            entries.push(...accountingEntry(log.created_at, reference, description, [
+                { account: ACCOUNTING_ACCOUNTS.inventory, debit: amount, credit: 0 },
+                { account: creditAccount, debit: 0, credit: amount }
+            ]));
+            if (log.payment_method === 'CREDIT' && log.paid_at) {
+                entries.push(...accountingEntry(log.paid_at, `BYR-ST-${log.id}`, `Pelunasan utang pembelian ${ingredientName}`, [
+                    { account: ACCOUNTING_ACCOUNTS.payable, debit: amount, credit: 0 },
+                    { account: ACCOUNTING_ACCOUNTS.cash, debit: 0, credit: amount }
+                ]));
+            }
+        } else if (log.type === 'OUT') {
+            const isStocktakeLoss = log.movement_reason === 'STOCKTAKE_LOSS';
+            const isWaste = log.movement_reason === 'SPOILED' || log.movement_reason?.startsWith('FOOD_WASTE_');
+            const expenseAccount = isStocktakeLoss
+                ? ACCOUNTING_ACCOUNTS.stocktakeLoss
+                : isWaste
+                    ? ACCOUNTING_ACCOUNTS.waste
+                    : log.menu_item_id || log.notes?.startsWith('Penjualan #')
+                        ? ACCOUNTING_ACCOUNTS.cogs
+                        : ACCOUNTING_ACCOUNTS.unknown;
+            entries.push(...accountingEntry(log.created_at, reference, description, [
+                { account: expenseAccount, debit: amount, credit: 0 },
+                { account: ACCOUNTING_ACCOUNTS.inventory, debit: 0, credit: amount }
+            ]));
+        }
+    });
+
+    expenses.forEach(expense => {
+        const amount = Number(expense.amount);
+        const expenseAccount = `Beban Operasional — ${expense.category}`;
+        const creditAccount = expense.payment_method === 'CASH'
+            ? ACCOUNTING_ACCOUNTS.cash
+            : ACCOUNTING_ACCOUNTS.payable;
+        entries.push(...accountingEntry(expense.created_at, `BY-${expense.id}`, expense.description, [
+            { account: expenseAccount, debit: amount, credit: 0 },
+            { account: creditAccount, debit: 0, credit: amount }
+        ]));
+        if (expense.payment_method === 'CREDIT' && expense.paid_at) {
+            entries.push(...accountingEntry(expense.paid_at, `BYR-BY-${expense.id}`, `Pelunasan biaya: ${expense.description}`, [
+                { account: ACCOUNTING_ACCOUNTS.payable, debit: amount, credit: 0 },
+                { account: ACCOUNTING_ACCOUNTS.cash, debit: 0, credit: amount }
+            ]));
+        }
+    });
+    return entries.sort((left, right) =>
+        new Date(right.date) - new Date(left.date) || left.reference.localeCompare(right.reference));
+}
+
+function renderAccountingJournal() {
+    const body = document.getElementById('accounting-journal-table');
+    const trialBody = document.getElementById('accounting-trial-balance');
+    const trialTotal = document.getElementById('accounting-trial-balance-total');
+    const startValue = document.getElementById('accounting-start-date').value;
+    const endValue = document.getElementById('accounting-end-date').value;
+    const accountFilter = document.getElementById('accounting-account-filter').value;
+    if (startValue && endValue && startValue > endValue) throw new Error('Rentang tanggal jurnal tidak valid.');
+    const start = startValue ? new Date(`${startValue}T00:00:00`).getTime() : -Infinity;
+    let end = Infinity;
+    if (endValue) {
+        const [year, month, day] = endValue.split('-').map(Number);
+        end = new Date(year, month - 1, day + 1).getTime();
+    }
+    const periodEntries = accountingJournalEntries.filter(entry => {
+        const time = new Date(entry.date).getTime();
+        return time >= start && time < end;
+    });
+    const filtered = periodEntries.filter(entry => !accountFilter || entry.account === accountFilter);
+    const runningByAccount = new Map();
+    const runningByEntry = new Map();
+    [...accountingJournalEntries].reverse().forEach(entry => {
+        const balance = (runningByAccount.get(entry.account) || 0) + entry.debit - entry.credit;
+        runningByAccount.set(entry.account, balance);
+        runningByEntry.set(`${entry.date}|${entry.reference}|${entry.account}`, balance);
+    });
+    document.getElementById('accounting-period-label').textContent = startValue || endValue
+        ? `${startValue ? new Date(`${startValue}T00:00:00`).toLocaleDateString('id-ID') : 'Awal data'} – ${endValue ? new Date(`${endValue}T00:00:00`).toLocaleDateString('id-ID') : 'Akhir data'}`
+        : 'Semua transaksi yang tercatat';
+    body.innerHTML = filtered.length ? filtered.map(entry => `
+        <tr>
+            <td>${new Date(entry.date).toLocaleString('id-ID')}</td>
+            <td><strong>${escapeHtml(entry.reference)}</strong></td>
+            <td>${escapeHtml(entry.description)}</td>
+            <td>${escapeHtml(entry.account)}</td>
+            <td class="report-amount">${entry.debit ? `Rp ${formatRp(entry.debit)}` : '-'}</td>
+            <td class="report-amount">${entry.credit ? `Rp ${formatRp(entry.credit)}` : '-'}</td>
+            <td class="report-amount">${(() => {
+                const balance = runningByEntry.get(`${entry.date}|${entry.reference}|${entry.account}`) || 0;
+                return `${balance >= 0 ? 'D' : 'K'} Rp ${formatRp(Math.abs(balance))}`;
+            })()}</td>
+        </tr>
+    `).join('') : '<tr><td colspan="7" class="empty-state">Tidak ada jurnal pada filter yang dipilih.</td></tr>';
+
+    const balances = new Map();
+    periodEntries.forEach(entry => {
+        const balance = balances.get(entry.account) || { debit: 0, credit: 0 };
+        balance.debit += entry.debit;
+        balance.credit += entry.credit;
+        balances.set(entry.account, balance);
+    });
+    const rows = [...balances.entries()].sort(([left], [right]) => left.localeCompare(right, 'id'));
+    const totalDebit = rows.reduce((sum, [, balance]) => sum + balance.debit, 0);
+    const totalCredit = rows.reduce((sum, [, balance]) => sum + balance.credit, 0);
+    const isBalanced = Math.abs(totalDebit - totalCredit) < 0.01;
+    trialBody.innerHTML = rows.length ? rows.map(([account, balance]) => `
+        <tr>
+            <td>${escapeHtml(account)}</td>
+            <td class="report-amount">${balance.debit ? `Rp ${formatRp(balance.debit)}` : '-'}</td>
+            <td class="report-amount">${balance.credit ? `Rp ${formatRp(balance.credit)}` : '-'}</td>
+            <td class="report-amount">${balance.debit >= balance.credit ? `Debit Rp ${formatRp(balance.debit - balance.credit)}` : `Kredit Rp ${formatRp(balance.credit - balance.debit)}`}</td>
+        </tr>
+    `).join('') : '<tr><td colspan="4" class="empty-state">Tidak ada mutasi akun pada periode ini.</td></tr>';
+    trialTotal.innerHTML = rows.length
+        ? `<tr class="report-total"><th>Total</th><th class="report-amount">Rp ${formatRp(totalDebit)}</th><th class="report-amount">Rp ${formatRp(totalCredit)}</th><th>${isBalanced ? 'Seimbang' : 'Tidak seimbang'}</th></tr>`
+        : '';
+    document.getElementById('accounting-balance-note').textContent = rows.length
+        ? `Total debit ${isBalanced ? 'seimbang' : 'tidak seimbang'} dengan kredit untuk mutasi yang ditampilkan. Ini bukan neraca saldo akhir karena saldo awal akun dan seluruh aset/kewajiban tidak dicatat dalam skema saat ini.`
+        : 'Saldo awal akun dan neraca saldo lengkap belum tersedia pada skema saat ini.';
+}
+
+async function loadAccountingJournal() {
+    const body = document.getElementById('accounting-journal-table');
+    body.innerHTML = '<tr><td colspan="7">Memuat jurnal semua transaksi...</td></tr>';
+    try {
+        const [salesResult, logsResult, expensesResult] = await Promise.all([
+            fetchAllReportRows(() => supabaseClient.from('sales')
+                .select('id, total_amount, payment_method, platform_fee, created_at')
+                .order('created_at', { ascending: false })),
+            fetchAllReportRows(() => supabaseClient.from('inventory_logs')
+                .select('id, type, qty, unit_price_at_time, created_at, paid_at, payment_method, movement_reason, notes, menu_item_id, ingredients(name), inventory_batch_consumptions(quantity, unit_cost)')
+                .order('created_at', { ascending: false })),
+            fetchAllReportRows(() => supabaseClient.from('operating_expenses')
+                .select('id, description, category, amount, payment_method, created_at, paid_at')
+                .order('created_at', { ascending: false }))
+        ]);
+        const failed = [salesResult, logsResult, expensesResult].find(result => result.error);
+        if (failed) throw failed.error;
+        accountingJournalEntries = buildAccountingJournal(
+            salesResult.data || [],
+            logsResult.data || [],
+            expensesResult.data || []
+        );
+        const accountFilter = document.getElementById('accounting-account-filter');
+        const selectedAccount = accountFilter.value;
+        const accounts = [...new Set(accountingJournalEntries.map(entry => entry.account))]
+            .sort((left, right) => left.localeCompare(right, 'id'));
+        accountFilter.innerHTML = '<option value="">Semua akun</option>' +
+            accounts.map(account => `<option value="${escapeHtml(account)}">${escapeHtml(account)}</option>`).join('');
+        if (accounts.includes(selectedAccount)) accountFilter.value = selectedAccount;
+        renderAccountingJournal();
+    } catch (error) {
+        body.innerHTML = `<tr><td colspan="7" class="pos-history-error">Jurnal umum gagal dimuat: ${escapeHtml(error.message)}</td></tr>`;
+        document.getElementById('accounting-trial-balance').innerHTML =
+            '<tr><td colspan="4" class="pos-history-error">Neraca saldo mutasi tidak tersedia.</td></tr>';
+        document.getElementById('accounting-period-label').textContent = 'Jurnal tidak tersedia.';
+        document.getElementById('accounting-balance-note').textContent = `Gagal memuat sumber transaksi: ${error.message}`;
+        console.error('Gagal memuat jurnal umum:', error);
+    }
+}
+
+function exportAccountingJournal() {
+    const startValue = document.getElementById('accounting-start-date').value;
+    const endValue = document.getElementById('accounting-end-date').value;
+    const accountFilter = document.getElementById('accounting-account-filter').value;
+    const start = startValue ? new Date(`${startValue}T00:00:00`).getTime() : -Infinity;
+    let end = Infinity;
+    if (endValue) {
+        const [year, month, day] = endValue.split('-').map(Number);
+        end = new Date(year, month - 1, day + 1).getTime();
+    }
+    const rows = accountingJournalEntries.filter(entry => {
+        const time = new Date(entry.date).getTime();
+        return time >= start && time < end && (!accountFilter || entry.account === accountFilter);
+    });
+    const csvValue = value => {
+        const text = String(value);
+        const safeText = /^[=+\-@]/.test(text) ? `'${text}` : text;
+        return `"${safeText.replace(/"/g, '""')}"`;
+    };
+    const csv = [
+        ['Tanggal', 'Referensi', 'Keterangan', 'Akun', 'Debit', 'Kredit'],
+        ...rows.map(entry => [
+            new Date(entry.date).toLocaleString('id-ID'),
+            entry.reference,
+            entry.description,
+            entry.account,
+            entry.debit,
+            entry.credit
+        ])
+    ].map(row => row.map(csvValue).join(',')).join('\r\n');
+    const url = URL.createObjectURL(new Blob(['\uFEFF', csv], { type: 'text/csv;charset=utf-8' }));
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `jurnal-umum-${localDateValue(new Date())}.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
 }
 
 async function loadMenuRecipe() {
@@ -363,19 +808,29 @@ function median(values) {
 async function loadMenuEngineering() {
     const tableBody = document.getElementById('menu-engineering-table');
     const refreshButton = document.getElementById('menu-engineering-refresh');
-    tableBody.innerHTML = '<tr><td colspan="8">Memuat analisis menu...</td></tr>';
+    const requestId = ++menuEngineeringLoadId;
+    tableBody.innerHTML = '<tr><td colspan="12">Memuat analisis menu...</td></tr>';
     refreshButton.disabled = true;
+    document.getElementById('menu-engineering-recommendations').innerHTML =
+        '<p class="report-note">Menghitung rekomendasi dari data penjualan...</p>';
 
     try {
-        const today = new Date();
-        const startDate = new Date(today.getFullYear(), today.getMonth(), today.getDate() - 29);
-        const endDate = new Date(today.getFullYear(), today.getMonth(), today.getDate() + 1);
-        const start = startDate.toISOString();
-        const end = endDate.toISOString();
+        const range = getMenuEngineeringRange();
+        const previousDuration = range.end.getTime() - range.start.getTime();
+        const previousRange = document.getElementById('menu-engineering-period').value === 'previous-month'
+            ? {
+                start: new Date(range.start.getFullYear(), range.start.getMonth() - 1, 1),
+                end: range.start
+            }
+            : {
+            start: new Date(range.start.getTime() - previousDuration),
+            end: range.start
+            };
+        const queryStart = previousRange.start.toISOString();
+        const queryEnd = range.end.toISOString();
         const [menuResult, recipeResult, batchResult, salesResult, cogsResult] = await Promise.all([
             supabaseClient.from('menu_items')
-                .select('id, name, selling_price')
-                .eq('is_available', true)
+                .select('id, name, selling_price, is_available')
                 .order('name'),
             fetchAllReportRows(() => supabaseClient.from('menu_recipes')
                 .select('menu_item_id, ingredient_id, qty_per_menu, ingredients(id, name, unit, unit_price)')
@@ -387,18 +842,19 @@ async function loadMenuEngineering() {
                 .order('received_at', { ascending: true })
                 .order('id', { ascending: true })),
             fetchAllReportRows(() => supabaseClient.from('sales')
-                .select('id, sale_items(menu_item_id, quantity)')
-                .gte('created_at', start)
-                .lt('created_at', end)),
+                .select('id, total_amount, platform_fee, created_at, sale_items(menu_item_id, quantity, unit_price)')
+                .gte('created_at', queryStart)
+                .lt('created_at', queryEnd)),
             fetchAllReportRows(() => supabaseClient.from('inventory_logs')
                 .select('menu_item_id, qty, unit_price_at_time, notes, inventory_batch_consumptions(quantity, unit_cost)')
                 .eq('type', 'OUT')
                 .is('movement_reason', null)
                 .not('menu_item_id', 'is', null)
                 .like('notes', 'Penjualan #%')
-                .gte('created_at', start)
-                .lt('created_at', end))
+                .gte('created_at', queryStart)
+                .lt('created_at', queryEnd))
         ]);
+        if (requestId !== menuEngineeringLoadId) return;
 
         if (menuResult.error) throw menuResult.error;
         for (const result of [recipeResult, batchResult, salesResult, cogsResult]) {
@@ -422,147 +878,462 @@ async function loadMenuEngineering() {
             if (recipe.ingredients) ingredientsById.set(Number(recipe.ingredient_id), recipe.ingredients);
         });
 
-        const soldUnitsByMenu = new Map();
+        const currentMetrics = new Map();
+        const previousMetrics = new Map();
+        const coveredSaleMenus = new Set();
+        const getMetrics = (map, menuId) => {
+            if (!map.has(menuId)) map.set(menuId, { units: 0, grossSales: 0, netSales: 0, actualHpp: 0, actualUnits: 0 });
+            return map.get(menuId);
+        };
         const saleMenuQuantities = new Map();
         (salesResult.data || []).forEach(sale => {
+            const saleDate = new Date(sale.created_at);
+            const isCurrent = saleDate >= range.start && saleDate < range.end;
+            const isPrevious = saleDate >= previousRange.start && saleDate < previousRange.end;
+            if (!isCurrent && !isPrevious) return;
+            const periodMetrics = isCurrent ? currentMetrics : previousMetrics;
             const menuQuantities = new Map();
+            const items = sale.sale_items || [];
+            const saleItemsGross = items.reduce((sum, item) =>
+                sum + Number(item.unit_price) * Number(item.quantity), 0);
+            const platformFee = Number(sale.platform_fee || 0);
             (sale.sale_items || []).forEach(item => {
                 if (item.menu_item_id === null) return;
                 const menuId = Number(item.menu_item_id);
                 const quantity = Number(item.quantity);
-                soldUnitsByMenu.set(menuId, (soldUnitsByMenu.get(menuId) || 0) + quantity);
                 menuQuantities.set(menuId, (menuQuantities.get(menuId) || 0) + quantity);
+                const metrics = getMetrics(periodMetrics, menuId);
+                const itemGross = Number(item.unit_price) * quantity;
+                const allocatedPlatformFee = saleItemsGross > 0
+                    ? platformFee * itemGross / saleItemsGross
+                    : 0;
+                metrics.units += quantity;
+                metrics.grossSales += itemGross;
+                metrics.netSales += itemGross - allocatedPlatformFee;
             });
-            saleMenuQuantities.set(Number(sale.id), menuQuantities);
+            saleMenuQuantities.set(Number(sale.id), { menuQuantities, isCurrent });
         });
-        const actualCostByMenu = new Map();
-        const actualUnitsByMenu = new Map();
-        const coveredSaleMenus = new Set();
         (cogsResult.data || []).forEach(log => {
             const saleIdMatch = log.notes?.match(/^Penjualan #(\d+)$/);
             if (!saleIdMatch) return;
             const saleId = Number(saleIdMatch[1]);
             const menuId = Number(log.menu_item_id);
-            actualCostByMenu.set(menuId, (actualCostByMenu.get(menuId) || 0) + inventoryLogCost(log));
-            coveredSaleMenus.add(`${saleId}:${menuId}`);
-        });
-        coveredSaleMenus.forEach(key => {
-            const [saleId, menuId] = key.split(':').map(Number);
-            const quantity = saleMenuQuantities.get(saleId)?.get(menuId) || 0;
-            actualUnitsByMenu.set(menuId, (actualUnitsByMenu.get(menuId) || 0) + quantity);
+            const sale = saleMenuQuantities.get(saleId);
+            if (!sale) return;
+            const metrics = getMetrics(sale.isCurrent ? currentMetrics : previousMetrics, menuId);
+            metrics.actualHpp += inventoryLogCost(log);
+            const coveredKey = `${sale.isCurrent ? 'current' : 'previous'}:${saleId}:${menuId}`;
+            if (!coveredSaleMenus.has(coveredKey)) {
+                metrics.actualUnits += sale.menuQuantities.get(menuId) || 0;
+                coveredSaleMenus.add(coveredKey);
+            }
         });
 
-        const medianUnitsSold = median(menus.map(menu => soldUnitsByMenu.get(Number(menu.id)) || 0));
-        const rows = menus.map(menu => {
-            const menuId = Number(menu.id);
-            const soldUnits = soldUnitsByMenu.get(menuId) || 0;
+        const fallbackHppByMenu = new Map();
+        const getFallbackHpp = menuId => {
+            if (fallbackHppByMenu.has(menuId)) return fallbackHppByMenu.get(menuId);
             const recipes = recipesByMenu.get(menuId) || [];
-            const actualHpp = actualCostByMenu.get(menuId);
-            const actualUnits = actualUnitsByMenu.get(menuId) || 0;
-            const hppPerPortion = actualUnits > 0 && actualHpp !== undefined
-                ? actualHpp / actualUnits
-                : recipes.length > 0
-                    ? fifoRecipeCost(recipes, batchesByIngredient, ingredientsById)
-                    : null;
-            const sellingPrice = Number(menu.selling_price);
-            const foodCostPercent = hppPerPortion !== null && sellingPrice > 0
-                ? (hppPerPortion / sellingPrice) * 100
+            const fallback = recipes.length > 0
+                ? fifoRecipeCost(recipes, batchesByIngredient, ingredientsById)
                 : null;
-            const isHighSelling = soldUnits > medianUnitsSold;
-            let category;
-            if (foodCostPercent === null) category = 'NO_RECIPE';
-            else if (foodCostPercent < 30) category = isHighSelling ? 'STAR' : 'PUZZLE';
-            else if (foodCostPercent > 35) category = isHighSelling ? 'PLOWHORSE' : 'DOG';
-            else category = 'NORMAL';
-
+            fallbackHppByMenu.set(menuId, fallback);
+            return fallback;
+        };
+        const calculatePeriodRow = (menuId, metrics) => {
+            const soldUnits = metrics?.units || 0;
+            const actualUnits = Math.min(metrics?.actualUnits || 0, soldUnits);
+            const actualHpp = metrics?.actualHpp || 0;
+            const fallbackHpp = getFallbackHpp(menuId);
+            const uncoveredUnits = soldUnits - actualUnits;
+            const hppIsAvailable = actualUnits === soldUnits
+                ? soldUnits > 0 || fallbackHpp !== null
+                : fallbackHpp !== null;
+            const totalHpp = soldUnits === 0
+                ? 0
+                : hppIsAvailable
+                    ? actualHpp + uncoveredUnits * fallbackHpp
+                    : null;
+            const hppPerPortion = soldUnits > 0
+                ? hppIsAvailable ? totalHpp / soldUnits : null
+                : fallbackHpp;
+            const netSales = metrics?.netSales || 0;
+            return {
+                units: soldUnits,
+                grossSales: metrics?.grossSales || 0,
+                netSales,
+                totalHpp,
+                hppPerPortion,
+                contribution: totalHpp === null ? null : netSales - totalHpp,
+                marginPerUnit: soldUnits > 0 && totalHpp !== null
+                    ? (netSales - totalHpp) / soldUnits
+                    : null,
+                hppBasis: soldUnits === 0 || actualUnits === 0
+                    ? fallbackHpp === null ? 'Resep belum lengkap' : 'Estimasi resep FIFO'
+                    : uncoveredUnits > 0
+                        ? 'Aktual batch + estimasi resep'
+                        : 'Aktual batch'
+            };
+        };
+        const allRows = menus.map(menu => {
+            const menuId = Number(menu.id);
+            const current = calculatePeriodRow(menuId, currentMetrics.get(menuId));
+            const previous = calculatePeriodRow(menuId, previousMetrics.get(menuId));
+            const sellingPrice = Number(menu.selling_price);
+            const foodCostPercent = current.hppPerPortion !== null && current.grossSales > 0 && current.units > 0
+                ? (current.hppPerPortion / (current.grossSales / current.units)) * 100
+                : null;
             return {
                 id: menuId,
                 name: menu.name,
+                isAvailable: menu.is_available !== false,
                 sellingPrice,
-                soldUnits,
-                hppPerPortion,
+                current,
+                previous,
                 foodCostPercent,
-                category,
-                idealMin: hppPerPortion === null ? null : Math.ceil(hppPerPortion / 0.32 - 1e-8),
-                idealMax: hppPerPortion === null ? null : Math.floor(hppPerPortion / 0.28 + 1e-8),
-                targetPrice: hppPerPortion === null ? null : Math.round(hppPerPortion / 0.30)
+                category: 'DATA_TERBATAS',
+                performanceChange: current.contribution === null || previous.contribution === null
+                    ? null
+                    : current.contribution - previous.contribution
             };
         });
+        const classificationMenus = allRows.filter(row => row.isAvailable || row.current.units > 0);
+        const totalUnits = classificationMenus.reduce((sum, row) => sum + row.current.units, 0);
+        const validMarginRows = classificationMenus.filter(row =>
+            row.current.units > 0 && row.current.marginPerUnit !== null);
+        const enoughData = totalUnits >= 10 && validMarginRows.length >= 2;
+        const popularityThreshold = classificationMenus.length > 0
+            ? totalUnits * 0.7 / classificationMenus.length
+            : 0;
+        const profitabilityDenominator = validMarginRows.reduce((sum, row) => sum + row.current.units, 0);
+        const profitThreshold = profitabilityDenominator > 0
+            ? validMarginRows.reduce((sum, row) =>
+                sum + row.current.marginPerUnit * row.current.units, 0) / profitabilityDenominator
+            : 0;
+        allRows.forEach(row => {
+            if (!enoughData) {
+                row.category = row.current.hppPerPortion === null && row.current.units > 0
+                    ? 'NO_HPP'
+                    : 'DATA_TERBATAS';
+                return;
+            }
+            if (row.current.marginPerUnit === null) {
+                row.category = row.current.units > 0 ? 'NO_HPP' : 'DATA_TERBATAS';
+                return;
+            }
+            const isPopular = row.current.units >= popularityThreshold;
+            const hasHighMargin = row.current.marginPerUnit >= profitThreshold;
+            row.category = isPopular
+                ? hasHighMargin ? 'STAR' : 'PLOWHORSE'
+                : hasHighMargin ? 'PUZZLE' : 'DOG';
+        });
+        const totalNetSales = allRows.reduce((sum, row) => sum + row.current.netSales, 0);
+        const selectedMenuId = document.getElementById('menu-engineering-menu-filter').value;
+        const selectedRows = selectedMenuId
+            ? allRows.filter(row => String(row.id) === selectedMenuId)
+            : allRows;
+        menuEngineeringRows = allRows;
+        populateMenuEngineeringFilter(menus);
+        const rows = selectedMenuId
+            ? allRows.filter(row => String(row.id) === selectedMenuId)
+            : allRows;
+        renderMenuEngineeringTable(rows, totalNetSales);
+        renderMenuEngineeringChart(selectedRows, popularityThreshold, profitThreshold, enoughData);
+        renderMenuEngineeringRecommendations(rows, enoughData, popularityThreshold, profitThreshold);
+        document.getElementById('menu-engineering-period-label').textContent =
+            `${formatMenuEngineeringDate(range.start)} – ${formatMenuEngineeringDate(new Date(range.end.getTime() - 1))}`;
+        document.getElementById('menu-engineering-comparison-label').textContent =
+            `Perbandingan sebelumnya: ${formatMenuEngineeringDate(previousRange.start)} – ${formatMenuEngineeringDate(new Date(previousRange.end.getTime() - 1))}`;
+        document.getElementById('menu-engineering-threshold-note').textContent = enoughData
+            ? `Batas popularitas: ${formatMenuEngineeringNumber(popularityThreshold)} porsi (70% dari rata-rata ${formatMenuEngineeringNumber(totalUnits / classificationMenus.length)} porsi per menu yang aktif/terjual). Batas margin: Rp ${formatMenuEngineeringCurrency(profitThreshold)} kontribusi per porsi (rata-rata tertimbang unit menu terjual).`
+            : 'Klasifikasi ditahan karena data belum memadai: diperlukan sedikitnya 10 porsi terjual dan 2 menu dengan HPP yang dapat dihitung pada periode ini.';
+        document.getElementById('menu-engineering-data-note').textContent =
+            'Penjualan bersih per menu = harga item historis dikurangi alokasi proporsional komisi platform; belum ada data diskon/refund pada sumber transaksi. HPP mengutamakan konsumsi batch aktual, lalu estimasi resep FIFO bila biaya aktual belum tercatat. Kategori menu tidak tersedia pada skema, sehingga filter kategori tidak ditampilkan.';
 
-        const categoryLabels = {
-            STAR: ['STAR', 'badge-star'],
-            PLOWHORSE: ['PLOWHORSE', 'badge-plowhorse'],
-            PUZZLE: ['PUZZLE', 'badge-puzzle'],
-            DOG: ['DOG', 'badge-dog'],
-            NORMAL: ['NORMAL', 'badge-normal'],
-            NO_RECIPE: ['RESEP BELUM LENGKAP', '']
-        };
-        tableBody.innerHTML = rows.length
-            ? rows.map(row => {
-                const [label, badgeClass] = categoryLabels[row.category];
-                return `
-                    <tr>
-                        <td>${escapeHtml(row.name)}</td>
-                        <td>${row.hppPerPortion === null ? '-' : `Rp ${formatRp(row.hppPerPortion)}`}</td>
-                        <td>Rp ${formatRp(row.sellingPrice)}</td>
-                        <td>${row.foodCostPercent === null ? '-' : `${row.foodCostPercent.toFixed(1)}%`}</td>
-                        <td>${formatRp(row.soldUnits)}</td>
-                        <td><span class="badge ${badgeClass}">${label}</span></td>
-                        <td>${row.idealMin === null ? '-' : `Rp ${formatRp(row.idealMin)} – Rp ${formatRp(row.idealMax)}`}</td>
-                        <td>${row.targetPrice === null ? '-' : `Rp ${formatRp(row.targetPrice)}`}</td>
-                    </tr>
-                `;
-            }).join('')
-            : '<tr><td colspan="8">Belum ada menu untuk dianalisis.</td></tr>';
-
-        renderMenuEngineeringChart(rows.filter(row => row.hppPerPortion !== null));
     } catch (error) {
+        if (requestId !== menuEngineeringLoadId) return;
         console.error('Gagal memuat analisis menu engineering:', error);
-        tableBody.innerHTML = '<tr><td colspan="8">Analisis menu gagal dimuat.</td></tr>';
-        alert(`Gagal memuat analisis menu engineering: ${error.message}`);
+        if (menuEngineeringChartInstance) {
+            menuEngineeringChartInstance.destroy();
+            menuEngineeringChartInstance = null;
+        }
+        menuEngineeringRows = [];
+        tableBody.innerHTML = '<tr><td colspan="12" class="pos-history-error">Analisis gagal dimuat. Periksa koneksi dan coba muat ulang.</td></tr>';
+        document.getElementById('menu-engineering-recommendations').innerHTML =
+            '<p class="pos-history-error">Rekomendasi tidak tersedia karena data analisis gagal dimuat.</p>';
+        document.getElementById('menu-engineering-period-label').textContent = 'Data tidak tersedia';
+        document.getElementById('menu-engineering-threshold-note').textContent =
+            'Batas klasifikasi tidak dapat dihitung karena sumber data gagal dimuat.';
+        showToast(`Analisis menu gagal dimuat: ${error.message}`, 'error');
     } finally {
-        refreshButton.disabled = false;
+        if (requestId === menuEngineeringLoadId) refreshButton.disabled = false;
     }
 }
 
-function renderMenuEngineeringChart(rows) {
+function dateInputValue(date) {
+    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+}
+
+function getMenuEngineeringRange() {
+    const period = document.getElementById('menu-engineering-period').value;
+    const today = new Date();
+    const startToday = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+    let start;
+    let end = new Date(startToday.getTime() + 86400000);
+    if (period === 'today') {
+        start = startToday;
+    } else if (period === 'last7') {
+        start = new Date(startToday.getTime() - 6 * 86400000);
+    } else if (period === 'this-month') {
+        start = new Date(today.getFullYear(), today.getMonth(), 1);
+    } else if (period === 'previous-month') {
+        start = new Date(today.getFullYear(), today.getMonth() - 1, 1);
+        end = new Date(today.getFullYear(), today.getMonth(), 1);
+    } else {
+        const startValue = document.getElementById('menu-engineering-start-date').value;
+        const endValue = document.getElementById('menu-engineering-end-date').value;
+        if (!startValue || !endValue || startValue > endValue) {
+            throw new Error('Pilih rentang tanggal kustom yang valid.');
+        }
+        const [startYear, startMonth, startDay] = startValue.split('-').map(Number);
+        const [endYear, endMonth, endDay] = endValue.split('-').map(Number);
+        start = new Date(startYear, startMonth - 1, startDay);
+        end = new Date(endYear, endMonth - 1, endDay + 1);
+    }
+    return { start, end };
+}
+
+function formatMenuEngineeringDate(date) {
+    return new Intl.DateTimeFormat('id-ID', {
+        day: '2-digit', month: 'short', year: 'numeric'
+    }).format(date);
+}
+
+function formatMenuEngineeringNumber(value) {
+    return new Intl.NumberFormat('id-ID', { maximumFractionDigits: 1 }).format(value);
+}
+
+function formatMenuEngineeringCurrency(value) {
+    return formatRp(Math.round(value));
+}
+
+function populateMenuEngineeringFilter(menus) {
+    const select = document.getElementById('menu-engineering-menu-filter');
+    const previousValue = select.value;
+    const options = ['<option value="">Semua menu</option>'];
+    menus.forEach(menu => {
+        options.push(`<option value="${Number(menu.id)}">${escapeHtml(menu.name)}${menu.is_available === false ? ' (nonaktif)' : ''}</option>`);
+    });
+    select.innerHTML = options.join('');
+    if (menus.some(menu => String(menu.id) === previousValue)) select.value = previousValue;
+}
+
+function renderMenuEngineeringTable(rows, totalNetSales) {
+    const categoryLabels = {
+        STAR: ['STAR — populer & margin tinggi', 'badge-star'],
+        PLOWHORSE: ['PLOWHORSE — populer, margin rendah', 'badge-plowhorse'],
+        PUZZLE: ['PUZZLE — kurang populer, margin tinggi', 'badge-puzzle'],
+        DOG: ['DOG — kurang populer & margin rendah', 'badge-dog'],
+        NO_HPP: ['HPP TIDAK TERSEDIA', ''],
+        DATA_TERBATAS: ['DATA TERBATAS', 'badge-limited']
+    };
+    const tableBody = document.getElementById('menu-engineering-table');
+    tableBody.innerHTML = rows.length
+        ? rows.map(row => {
+            const [label, badgeClass] = categoryLabels[row.category];
+            const current = row.current;
+            const contributionShare = totalNetSales > 0 ? current.netSales / totalNetSales * 100 : null;
+            const previousContribution = row.previous.contribution;
+            const changeText = row.performanceChange === null
+                ? '—'
+                : previousContribution === 0
+                    ? current.contribution === 0 ? '—' : `Baru (+Rp ${formatMenuEngineeringCurrency(current.contribution)})`
+                    : `${row.performanceChange >= 0 ? '+' : '−'}Rp ${formatMenuEngineeringCurrency(Math.abs(row.performanceChange))} (${row.performanceChange >= 0 ? '+' : ''}${(row.performanceChange / Math.abs(previousContribution) * 100).toFixed(1)}%)`;
+            return `
+                <tr>
+                    <td><strong>${escapeHtml(row.name)}</strong><small class="menu-engineering-subtext">${row.current.hppBasis}</small></td>
+                    <td>${formatMenuEngineeringNumber(current.units)}</td>
+                    <td>${current.netSales === 0 && current.units === 0 ? '—' : `Rp ${formatMenuEngineeringCurrency(current.netSales)}`}</td>
+                    <td>${current.hppPerPortion === null ? '—' : `Rp ${formatMenuEngineeringCurrency(current.hppPerPortion)}`}</td>
+                    <td>${current.totalHpp === null ? '—' : `Rp ${formatMenuEngineeringCurrency(current.totalHpp)}`}</td>
+                    <td>${current.marginPerUnit === null ? '—' : `Rp ${formatMenuEngineeringCurrency(current.marginPerUnit)}`}</td>
+                    <td>${current.contribution === null ? '—' : `Rp ${formatMenuEngineeringCurrency(current.contribution)}`}</td>
+                    <td>${row.foodCostPercent === null ? '—' : `${row.foodCostPercent.toFixed(1)}%`}</td>
+                    <td>${contributionShare === null ? '—' : `${contributionShare.toFixed(1)}%`}</td>
+                    <td>${escapeHtml(changeText)}</td>
+                    <td><span class="badge ${badgeClass}" title="Popularitas dan margin dihitung dari batas yang ditampilkan di atas">${label}</span></td>
+                    <td><button type="button" class="btn btn-remove menu-simulate-button" data-menu-simulate="${row.id}" ${current.hppPerPortion === null ? 'disabled' : ''}>Simulasikan</button></td>
+                </tr>
+            `;
+        }).join('')
+        : '<tr><td colspan="12" class="empty-state">Tidak ada menu pada filter yang dipilih.</td></tr>';
+}
+
+function renderMenuEngineeringRecommendations(rows, enoughData, popularityThreshold, profitThreshold) {
+    const container = document.getElementById('menu-engineering-recommendations');
+    if (!enoughData) {
+        container.innerHTML = '<p class="report-note">Rekomendasi otomatis ditahan sampai tersedia minimal 10 porsi terjual dan 2 menu dengan HPP terhitung.</p>';
+        return;
+    }
+    const recommendations = [];
+    rows.forEach(row => {
+        if (row.current.marginPerUnit === null) return;
+        if (row.current.units > 0 && row.current.marginPerUnit < profitThreshold) {
+            recommendations.push({
+                title: `Evaluasi margin ${row.name}`,
+                detail: `Kontribusi Rp ${formatMenuEngineeringCurrency(row.current.marginPerUnit)} per porsi berada di bawah rata-rata Rp ${formatMenuEngineeringCurrency(profitThreshold)}. Tinjau harga jual atau biaya resep.`
+            });
+        }
+        if (row.category === 'PUZZLE') {
+            recommendations.push({
+                title: `Uji promosi terukur untuk ${row.name}`,
+                detail: `Margin Rp ${formatMenuEngineeringCurrency(row.current.marginPerUnit)} per porsi di atas rata-rata, sementara penjualan ${formatMenuEngineeringNumber(row.current.units)} porsi belum mencapai batas popularitas ${formatMenuEngineeringNumber(popularityThreshold)} porsi.`
+            });
+        } else if (row.category === 'STAR') {
+            recommendations.push({
+                title: `Pertahankan ${row.name}`,
+                detail: `Menu populer (${formatMenuEngineeringNumber(row.current.units)} porsi) dengan kontribusi Rp ${formatMenuEngineeringCurrency(row.current.marginPerUnit)} per porsi yang kuat.`
+            });
+        }
+        if (row.previous.units > 0 && row.current.units > 0 &&
+            row.previous.hppPerPortion > 0 && row.current.hppPerPortion !== null &&
+            row.current.hppPerPortion > row.previous.hppPerPortion * 1.1) {
+            const increase = (row.current.hppPerPortion / row.previous.hppPerPortion - 1) * 100;
+            recommendations.push({
+                title: `Periksa kenaikan HPP ${row.name}`,
+                detail: `HPP per porsi naik ${increase.toFixed(1)}% dibanding periode sebelumnya. Evaluasi harga resep, porsi, dan supplier.`
+            });
+        }
+    });
+    container.innerHTML = recommendations.length
+        ? recommendations.map(item => `<article class="menu-recommendation"><strong>${escapeHtml(item.title)}</strong><p>${escapeHtml(item.detail)}</p></article>`).join('')
+        : '<p class="report-note">Belum ada rekomendasi khusus; periksa tabel dan tren saat periode berikutnya.</p>';
+}
+
+function renderMenuEngineeringChart(rows, popularityThreshold, profitThreshold, enoughData) {
     const canvas = document.getElementById('menu-engineering-chart');
     if (menuEngineeringChartInstance) menuEngineeringChartInstance.destroy();
+    const categoryOrder = ['STAR', 'PLOWHORSE', 'PUZZLE', 'DOG', 'DATA_TERBATAS', 'NO_HPP'];
+    const colors = {
+        STAR: '#16a34a',
+        PLOWHORSE: '#f59e0b',
+        PUZZLE: '#4f46e5',
+        DOG: '#64748b',
+        DATA_TERBATAS: '#94a3b8',
+        NO_HPP: '#dc2626'
+    };
+    const datasets = categoryOrder.map(category => ({
+        label: category,
+        data: rows.filter(row => row.category === category && row.current.marginPerUnit !== null).map(row => ({
+            x: row.current.units,
+            y: row.current.marginPerUnit,
+            menuName: row.name,
+            hppPerPortion: row.current.hppPerPortion,
+            contribution: row.current.contribution,
+            category
+        })),
+        backgroundColor: colors[category],
+        pointRadius: 7,
+        pointHoverRadius: 9
+    })).filter(dataset => dataset.data.length > 0);
+    const thresholdPlugin = {
+        id: 'menuEngineeringThresholds',
+        afterDraw(chart) {
+            if (!enoughData) return;
+            const { ctx, chartArea, scales } = chart;
+            if (!chartArea || !scales.x || !scales.y) return;
+            const x = scales.x.getPixelForValue(popularityThreshold);
+            const y = scales.y.getPixelForValue(profitThreshold);
+            ctx.save();
+            ctx.setLineDash([5, 5]);
+            ctx.strokeStyle = '#64748b';
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.moveTo(x, chartArea.top);
+            ctx.lineTo(x, chartArea.bottom);
+            ctx.moveTo(chartArea.left, y);
+            ctx.lineTo(chartArea.right, y);
+            ctx.stroke();
+            ctx.restore();
+        }
+    };
     menuEngineeringChartInstance = new Chart(canvas.getContext('2d'), {
-        type: 'bar',
+        type: 'scatter',
         data: {
-            labels: rows.map(row => row.name),
-            datasets: [
-                {
-                    label: 'Harga Jual Saat Ini',
-                    data: rows.map(row => row.sellingPrice),
-                    backgroundColor: '#94a3b8'
-                },
-                {
-                    label: 'Harga Target (Food Cost 30%)',
-                    data: rows.map(row => row.targetPrice),
-                    backgroundColor: '#10b981'
-                }
-            ]
+            datasets
         },
         options: {
             responsive: true,
             maintainAspectRatio: false,
             scales: {
-                y: {
-                    beginAtZero: true,
-                    ticks: { callback: value => `Rp ${formatRp(value)}` }
-                }
+                x: { title: { display: true, text: 'Unit terjual pada periode' }, beginAtZero: true },
+                y: { title: { display: true, text: 'Kontribusi laba kotor per porsi (Rp)' }, ticks: { callback: value => `Rp ${formatRp(value)}` } }
             },
             plugins: {
+                legend: { position: 'bottom' },
                 tooltip: {
                     callbacks: {
-                        label: context => `${context.dataset.label}: Rp ${formatRp(context.raw)}`
+                        label: context => {
+                            const point = context.raw;
+                            return [
+                                point.menuName,
+                                `Terjual: ${formatMenuEngineeringNumber(point.x)} porsi`,
+                                `Kontribusi/porsi: Rp ${formatMenuEngineeringCurrency(point.y)}`,
+                                `Total kontribusi: Rp ${formatMenuEngineeringCurrency(point.contribution)}`,
+                                `HPP/porsi: Rp ${formatMenuEngineeringCurrency(point.hppPerPortion)}`,
+                                `Klasifikasi: ${point.category}`
+                            ];
+                        }
                     }
                 }
+            },
+            onClick(event, elements, chart) {
+                const element = elements[0];
+                if (!element) return;
+                const point = chart.data.datasets[element.datasetIndex].data[element.index];
+                const selectedRow = menuEngineeringRows.find(row => row.name === point.menuName);
+                if (selectedRow) openMenuEngineeringSimulation(selectedRow.id);
             }
-        }
+        },
+        plugins: [thresholdPlugin]
     });
+}
+
+function openMenuEngineeringSimulation(menuId) {
+    const row = menuEngineeringRows.find(item => item.id === Number(menuId));
+    if (!row || row.current.hppPerPortion === null) return;
+    menuEngineeringSimulationRow = row;
+    document.getElementById('menu-simulation-name').textContent = row.name;
+    document.getElementById('menu-simulation-hpp').textContent = `Rp ${formatMenuEngineeringCurrency(row.current.hppPerPortion)} / porsi (${row.current.hppBasis})`;
+    document.getElementById('menu-simulation-price').value = String(row.sellingPrice);
+    document.getElementById('menu-simulation-target').value =
+        localStorage.getItem('menuEngineeringTargetFoodCost') || '30';
+    document.getElementById('menu-engineering-simulation').hidden = false;
+    updateMenuEngineeringSimulation();
+    document.getElementById('menu-engineering-simulation').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+function updateMenuEngineeringSimulation() {
+    if (!menuEngineeringSimulationRow) return;
+    const alternativePrice = Number(document.getElementById('menu-simulation-price').value);
+    const targetValue = Number(document.getElementById('menu-simulation-target').value);
+    const hpp = menuEngineeringSimulationRow.current.hppPerPortion;
+    const isValid = Number.isFinite(alternativePrice) && alternativePrice > 0 &&
+        Number.isFinite(targetValue) && targetValue > 0 && targetValue < 100;
+    document.getElementById('menu-simulation-result').innerHTML = isValid
+        ? `<div><span>Food Cost simulasi</span><strong>${(hpp / alternativePrice * 100).toFixed(1)}%</strong></div>
+           <div><span>Laba kotor / porsi</span><strong>Rp ${formatMenuEngineeringCurrency(alternativePrice - hpp)}</strong></div>
+           <div><span>Harga untuk target ${targetValue}%</span><strong>Rp ${formatMenuEngineeringCurrency(hpp / (targetValue / 100))}</strong></div>`
+        : '<p class="pos-history-error">Masukkan harga alternatif di atas Rp 0 dan target food cost antara 1% sampai 99%.</p>';
+    document.getElementById('menu-simulation-save-target').disabled = !Number.isFinite(targetValue) || targetValue <= 0 || targetValue >= 100;
+}
+
+function closeMenuEngineeringSimulation(resetPrice = false) {
+    if (resetPrice && menuEngineeringSimulationRow) {
+        document.getElementById('menu-simulation-price').value = String(menuEngineeringSimulationRow.sellingPrice);
+        updateMenuEngineeringSimulation();
+    }
+    document.getElementById('menu-engineering-simulation').hidden = true;
+    menuEngineeringSimulationRow = null;
 }
 
 function renderChart(labels, dataValues) {
@@ -631,7 +1402,7 @@ async function loadInventory() {
     foodWasteIngredientSelect.innerHTML = '<option value="">-- Pilih Bahan Baku --</option>';
     stocktakeBody.innerHTML = '';
     selectIngredient.innerHTML = '<option value="">-- Pilih Bahan Baku --</option>';
-    filterSelect.innerHTML = '<option value="">Semua Bahan (Jurnal Umum)</option>';
+    filterSelect.innerHTML = '<option value="">Semua Bahan</option>';
 
     data.forEach(item => {
         const totalValue = Number(item.stock_qty) * Number(item.unit_price);
@@ -868,7 +1639,8 @@ document.getElementById('food-waste-form').addEventListener('submit', async (eve
         await Promise.all([
             loadInventory(),
             loadJournalAndAnalysis(document.getElementById('filter-ingredient').value),
-            loadFinancialReport()
+            loadFinancialReport(),
+            loadAccountingJournal()
         ]);
         showToast('Food waste berhasil dicatat dan jurnal beban kerusakan persediaan telah dibuat.');
     } catch (error) {
@@ -920,7 +1692,8 @@ document.getElementById('stocktake-form').addEventListener('submit', async (even
         await Promise.all([
             loadInventory(),
             loadJournalAndAnalysis(document.getElementById('filter-ingredient').value),
-            loadFinancialReport()
+            loadFinancialReport(),
+            loadAccountingJournal()
         ]);
         showToast(`Stok opname berhasil disimpan. ${adjustmentCount} penyesuaian jurnal dibuat.`);
     } catch (error) {
@@ -1006,80 +1779,137 @@ document.getElementById('supplier_id').addEventListener('change', (event) => {
     document.getElementById('inventory-unit-price').value = selectedOption.dataset.price || '';
 });
 
-document.getElementById('pos-add-form').addEventListener('submit', (e) => {
-    e.preventDefault();
-    const menuId = Number(document.getElementById('pos-menu-select').value);
-    const quantity = Number(document.getElementById('pos-quantity').value);
-    const menu = menuItems.find(item => Number(item.id) === menuId);
-
-    if (!menu || !Number.isInteger(quantity) || quantity < 1) {
-        alert('Pilih menu dan masukkan jumlah porsi yang valid.');
+document.getElementById('pos-menu-search').addEventListener('input', renderPosMenuGrid);
+document.getElementById('pos-menu-grid').addEventListener('click', event => {
+    const button = event.target.closest('[data-menu-id]');
+    if (!button || posCheckoutInProgress) return;
+    const menu = menuItems.find(item => Number(item.id) === Number(button.dataset.menuId));
+    if (!menu || menu.is_available === false) {
+        showToast('Menu ini tidak tersedia untuk dijual.', 'warning');
         return;
     }
-
-    const existingItem = posCart.find(item => Number(item.id) === menuId);
-    if (existingItem) existingItem.quantity += quantity;
-    else posCart.push({
-        id: menu.id,
-        name: menu.name,
-        selling_price: Number(menu.selling_price),
-        quantity
-    });
-
-    document.getElementById('pos-quantity').value = '1';
+    const existingItem = posCart.find(item => Number(item.id) === Number(menu.id));
+    if (existingItem) existingItem.quantity += 1;
+    else posCart.push({ id: menu.id, name: menu.name, selling_price: Number(menu.selling_price), quantity: 1 });
     renderPosCart();
-    showToast(`${menu.name} ditambahkan ke keranjang.`, 'success');
+    showToast(`${menu.name} ditambahkan ke keranjang.`);
 });
 
-document.getElementById('pos-cart-table').addEventListener('click', (e) => {
-    const button = e.target.closest('[data-cart-index]');
-    if (!button) return;
-    posCart.splice(Number(button.dataset.cartIndex), 1);
+document.getElementById('pos-cart-items').addEventListener('click', event => {
+    const button = event.target.closest('[data-cart-action]');
+    if (!button || posCheckoutInProgress) return;
+    const item = posCart.find(cartItem => Number(cartItem.id) === Number(button.dataset.menuId));
+    if (!item) return;
+    if (button.dataset.cartAction === 'remove' || (button.dataset.cartAction === 'decrease' && item.quantity === 1)) {
+        posCart = posCart.filter(cartItem => Number(cartItem.id) !== Number(button.dataset.menuId));
+    } else if (button.dataset.cartAction === 'decrease') {
+        item.quantity -= 1;
+    } else if (button.dataset.cartAction === 'increase' && Number.isSafeInteger(item.quantity + 1)) {
+        item.quantity += 1;
+    }
     renderPosCart();
 });
 
 document.getElementById('pos-payment-method').addEventListener('change', renderPosCart);
+document.getElementById('pos-cash-received').addEventListener('input', renderPosCart);
 
-document.getElementById('pos-checkout-button').addEventListener('click', async (e) => {
-    if (posCart.length === 0) return;
-    const total = posCart.reduce((sum, item) => sum + item.selling_price * item.quantity, 0);
+document.getElementById('pos-checkout-button').addEventListener('click', async event => {
+    if (posCheckoutInProgress || posCart.length === 0) return;
+    const items = posCart.map(item => ({ ...item }));
+    const total = items.reduce((sum, item) => sum + item.selling_price * item.quantity, 0);
     const paymentMethod = document.getElementById('pos-payment-method').value;
-    const platformFee = ['GOFOOD', 'GRABFOOD'].includes(paymentMethod) ? Math.round(total * 0.2) : 0;
+    const cashReceived = Number(document.getElementById('pos-cash-received').value);
+    if (!Number.isFinite(total) || total <= 0 || items.some(item =>
+        !Number.isSafeInteger(item.quantity) || item.quantity <= 0 ||
+        !Number.isFinite(item.selling_price) || item.selling_price < 0)) {
+        showToast('Keranjang memiliki jumlah atau nominal yang tidak valid.', 'error');
+        return;
+    }
+    if (paymentMethod === 'CASH' && (!Number.isSafeInteger(cashReceived) || cashReceived < total)) {
+        showToast('Jumlah uang diterima harus sama dengan atau lebih besar dari total.', 'warning');
+        document.getElementById('pos-cash-received').focus();
+        return;
+    }
+    const platformFee = ['GOFOOD', 'GRABFOOD'].includes(paymentMethod) ? posPlatformFee(total) : 0;
     const confirmation = platformFee
-        ? `Simpan penjualan Rp ${formatRp(total)} melalui ${paymentMethod}?\nKomisi 20%: Rp ${formatRp(platformFee)}\nPiutang platform: Rp ${formatRp(total - platformFee)}`
-        : `Simpan penjualan Rp ${formatRp(total)} melalui ${paymentMethod}?`;
+        ? `Simpan penjualan Rp ${formatRp(total)} melalui ${paymentMethodLabel(paymentMethod)}?\nKomisi 20%: Rp ${formatRp(platformFee)}\nPiutang platform: Rp ${formatRp(total - platformFee)}`
+        : `Simpan penjualan Rp ${formatRp(total)} melalui ${paymentMethodLabel(paymentMethod)}${paymentMethod === 'CASH' ? `?\nUang diterima: Rp ${formatRp(cashReceived)}\nKembalian: Rp ${formatRp(cashReceived - total)}` : '?'}`;
     if (!window.confirm(confirmation)) return;
 
-    const button = e.currentTarget;
+    posCheckoutInProgress = true;
+    const button = event.currentTarget;
     button.disabled = true;
-    button.innerText = '⏳ Menyimpan...';
+    button.innerHTML = '<span class="loading-spinner"></span>Menyimpan...';
+    document.querySelectorAll('.pos-add-menu').forEach(menuButton => { menuButton.disabled = true; });
+    let saleId;
     try {
-        const { data: saleId, error } = await supabaseClient.rpc('create_sale', {
-            p_items: posCart.map(item => ({
-                menu_item_id: item.id,
-                quantity: item.quantity
-            })),
+        const { data, error } = await supabaseClient.rpc('create_sale', {
+            p_items: items.map(item => ({ menu_item_id: item.id, quantity: item.quantity })),
             p_payment_method: paymentMethod
         });
         if (error) throw error;
-
+        if (data === null || data === undefined) throw new Error('Transaksi belum dikonfirmasi oleh database.');
+        saleId = data;
+    } catch (error) {
+        console.error('Gagal menyimpan penjualan:', error);
+        showToast(`Penjualan gagal disimpan: ${error.message}`, 'error');
+    }
+    if (saleId !== undefined) {
+        const receipt = { id: saleId, createdAt: new Date().toISOString(), paymentMethod, total, cashReceived, items };
         posCart = [];
+        document.getElementById('pos-cash-received').value = '';
         renderPosCart();
-        await Promise.all([
+        try {
+            renderPosReceipt(receipt);
+            showToast(`Penjualan #${saleId} berhasil disimpan dan stok resep telah diperbarui.`);
+        } catch (error) {
+            console.error(`Penjualan #${saleId} tersimpan, tetapi struk gagal ditampilkan:`, error);
+            showToast(`Penjualan #${saleId} tersimpan, tetapi struk gagal ditampilkan: ${error.message}`, 'warning');
+        }
+        const refreshTasks = [
             loadInventory(),
             loadJournalAndAnalysis(document.getElementById('filter-ingredient').value),
             loadSalesJournal(),
             loadFinancialReport(),
-            loadTodaySalesTotal()
-        ]);
-        showToast(`Penjualan #${saleId} berhasil disimpan dan stok resep telah diperbarui.`);
-    } catch (error) {
-        console.error('Gagal menyimpan penjualan:', error);
-        alert(`Penjualan gagal disimpan: ${error.message}`);
-    } finally {
-        button.innerText = '✅ Simpan Penjualan';
-        button.disabled = posCart.length === 0;
+            loadAccountingJournal(),
+            loadTodaySalesTotal(),
+            loadPosSalesHistory()
+        ];
+        void Promise.allSettled(refreshTasks).then(refreshResults => {
+            const refreshFailures = refreshResults.filter(result => result.status === 'rejected');
+            if (refreshFailures.length) {
+                console.error('Transaksi tersimpan, tetapi sebagian tampilan gagal diperbarui:', refreshFailures);
+                showToast('Transaksi tersimpan, tetapi sebagian data layar perlu diperbarui.', 'warning');
+            }
+        });
     }
+    posCheckoutInProgress = false;
+    button.innerHTML = '<i data-lucide="circle-check"></i>Simpan Penjualan';
+    renderPosCart();
+    renderPosMenuGrid();
+    if (window.lucide) window.lucide.createIcons();
+});
+
+document.getElementById('pos-history-refresh').addEventListener('click', loadPosSalesHistory);
+['pos-history-search', 'pos-history-start', 'pos-history-end', 'pos-history-payment', 'pos-history-status']
+    .forEach(id => {
+        document.getElementById(id).addEventListener('input', loadPosSalesHistory);
+        document.getElementById(id).addEventListener('change', loadPosSalesHistory);
+    });
+document.getElementById('pos-history-table').addEventListener('click', event => {
+    const button = event.target.closest('[data-sale-id]');
+    if (button) showPosSaleDetails(Number(button.dataset.saleId));
+});
+document.getElementById('pos-receipt-close').addEventListener('click', () =>
+    document.getElementById('pos-receipt-dialog').close());
+document.getElementById('pos-receipt-print').addEventListener('click', () => {
+    document.body.classList.add('pos-printing');
+    window.print();
+});
+window.addEventListener('afterprint', () => document.body.classList.remove('pos-printing'));
+document.getElementById('pos-new-sale').addEventListener('click', () => {
+    document.getElementById('pos-receipt-dialog').close();
+    document.getElementById('pos-menu-search').focus();
 });
 
 document.getElementById('recipe-menu-select').addEventListener('change', loadMenuRecipe);
@@ -1802,6 +2632,72 @@ async function loadFinancialReport() {
 document.getElementById('financial-report-apply').addEventListener('click', loadFinancialReport);
 document.getElementById('financial-report-refresh').addEventListener('click', loadFinancialReport);
 document.getElementById('menu-engineering-refresh').addEventListener('click', loadMenuEngineering);
+document.getElementById('menu-engineering-apply').addEventListener('click', loadMenuEngineering);
+document.getElementById('menu-engineering-period').addEventListener('change', event => {
+    const customFields = document.querySelectorAll('.menu-engineering-custom-date');
+    const isCustom = event.target.value === 'custom';
+    customFields.forEach(field => { field.hidden = !isCustom; });
+    if (isCustom) {
+        const today = new Date();
+        const end = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+        const start = new Date(end.getTime() - 6 * 86400000);
+        document.getElementById('menu-engineering-start-date').value ||= dateInputValue(start);
+        document.getElementById('menu-engineering-end-date').value ||= dateInputValue(end);
+    } else {
+        loadMenuEngineering();
+    }
+});
+document.getElementById('menu-engineering-menu-filter').addEventListener('change', loadMenuEngineering);
+document.getElementById('menu-engineering-table').addEventListener('click', event => {
+    const button = event.target.closest('[data-menu-simulate]');
+    if (button) openMenuEngineeringSimulation(button.dataset.menuSimulate);
+});
+document.getElementById('menu-simulation-price').addEventListener('input', updateMenuEngineeringSimulation);
+document.getElementById('menu-simulation-target').addEventListener('input', updateMenuEngineeringSimulation);
+document.getElementById('menu-simulation-save-target').addEventListener('click', () => {
+    const target = Number(document.getElementById('menu-simulation-target').value);
+    if (!Number.isFinite(target) || target <= 0 || target >= 100) {
+        showToast('Target food cost harus antara 1% sampai 99%.', 'warning');
+        return;
+    }
+    localStorage.setItem('menuEngineeringTargetFoodCost', String(target));
+    showToast('Target food cost analisis tersimpan di perangkat ini.');
+    updateMenuEngineeringSimulation();
+});
+document.getElementById('menu-simulation-reset').addEventListener('click', () => closeMenuEngineeringSimulation(true));
+document.getElementById('menu-simulation-close').addEventListener('click', () => closeMenuEngineeringSimulation());
+document.getElementById('accounting-journal-apply').addEventListener('click', () => {
+    try {
+        renderAccountingJournal();
+    } catch (error) {
+        showToast(error.message, 'warning');
+    }
+});
+document.getElementById('accounting-account-filter').addEventListener('change', () => {
+    try {
+        renderAccountingJournal();
+    } catch (error) {
+        showToast(error.message, 'warning');
+    }
+});
+document.getElementById('accounting-journal-reset').addEventListener('click', () => {
+    document.getElementById('accounting-start-date').value = '';
+    document.getElementById('accounting-end-date').value = '';
+    document.getElementById('accounting-account-filter').value = '';
+    renderAccountingJournal();
+});
+document.getElementById('accounting-journal-export').addEventListener('click', () => {
+    try {
+        if (document.getElementById('accounting-start-date').value &&
+            document.getElementById('accounting-end-date').value &&
+            document.getElementById('accounting-start-date').value > document.getElementById('accounting-end-date').value) {
+            throw new Error('Rentang tanggal jurnal tidak valid.');
+        }
+        exportAccountingJournal();
+    } catch (error) {
+        showToast(error.message, 'warning');
+    }
+});
 
 const dashboardPeriodSelect = document.getElementById('dashboard-period');
 const dashboardCustomDates = [
@@ -1834,7 +2730,7 @@ document.getElementById('expense-form').addEventListener('submit', async (event)
         });
         if (error) throw error;
         form.reset();
-        await loadFinancialReport();
+        await Promise.all([loadFinancialReport(), loadAccountingJournal()]);
         showToast('Biaya operasional berhasil dicatat.');
     } catch (error) {
         console.error('Gagal mencatat biaya operasional:', error);
@@ -1855,7 +2751,7 @@ document.getElementById('payables-table').addEventListener('click', async (event
             p_source_id: Number(button.dataset.sourceId)
         });
         if (error) throw error;
-        await loadFinancialReport();
+        await Promise.all([loadFinancialReport(), loadAccountingJournal()]);
         showToast('Pembayaran utang berhasil dicatat.');
     } catch (error) {
         console.error('Gagal mencatat pembayaran utang:', error);
@@ -1877,7 +2773,9 @@ loadSuppliersAndMenus();
 loadInventory();
 loadJournalAndAnalysis();
 loadSalesJournal();
+loadAccountingJournal();
 loadTodaySalesTotal();
+loadPosSalesHistory();
 renderPosCart();
 const dashboardToday = localDateValue(new Date());
 document.getElementById('dashboard-start-date').value = dashboardToday;

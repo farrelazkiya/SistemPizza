@@ -58,11 +58,13 @@ Sistem ini tidak hanya mencatat data, tetapi juga memiliki fungsi analitik dan p
    - HPP dihitung dari biaya aktual batch yang terpakai, dan alokasi batch tersimpan sebagai jejak audit.
 
 8. **📈 Menu Engineering & Food Cost**
-   - Menghitung Food Cost % per menu berdasarkan HPP per porsi aktual dari batch yang terpakai selama 30 hari terakhir; menu tanpa penjualan memakai estimasi resep berdasarkan batch FIFO yang tersedia.
-   - Mengklasifikasikan menu sebagai STAR, PLOWHORSE, PUZZLE, DOG, atau NORMAL berdasarkan persentase biaya dan unit terjual terhadap median.
-   - Menampilkan grafik harga saat ini vs harga target Food Cost 30% dan rentang rekomendasi untuk target 28–32%.
-   - Lima contoh menu dan resep tersedia melalui migrasi SQL; Food Cost awalnya dirancang menjadi dua rendah (<30%), satu normal (30–35%), dan dua tinggi (>35%). Migrasi juga mencatat 25 porsi penjualan dummy tunai melalui RPC kasir agar contoh mewakili STAR, PUZZLE, NORMAL, PLOWHORSE, dan DOG. Transaksi ini memengaruhi laporan keuangan serta mengurangi stok. Nilai aktual mengikuti biaya batch, jadi klasifikasi dapat berubah ketika biaya bahan berubah.
-   - Tiga menu awal dinonaktifkan dari pilihan kasir/resep dan tabel Menu Engineering tanpa menghapus transaksi atau data historisnya. Penjualan lama tetap tercakup dalam total laba-rugi dan arus kas.
+   - Filter periode (hari ini, 7 hari terakhir, bulan ini/sebelumnya, rentang kustom) dan filter menu; hasil juga dibandingkan dengan periode sebelumnya yang setara.
+   - Tabel profitabilitas menyajikan unit, penjualan bersih setelah alokasi komisi platform, HPP aktual/estimasi per porsi dan total, kontribusi laba kotor, Food Cost %, porsi kontribusi penjualan, dan perubahan kontribusi.
+   - Klasifikasi STAR/PLOWHORSE/PUZZLE/DOG memakai unit terjual dan kontribusi per porsi. Batas popularitas adalah 70% rata-rata unit per menu; batas profitabilitas adalah rata-rata tertimbang kontribusi per porsi. Klasifikasi ditahan jika data periode belum mencapai 10 porsi terjual dan 2 menu dengan HPP terhitung.
+   - Scatter plot menampilkan popularitas terhadap margin dengan tooltip angka dan garis batas klasifikasi; rekomendasi hanya muncul saat data memadai.
+   - Panel SIMULASI memungkinkan pemilik mengubah harga alternatif dan target Food Cost untuk melihat Food Cost, laba kotor per porsi, serta harga target. Target analisis tersimpan lokal di perangkat; simulasi tidak mengubah harga aktual, resep, stok, atau jurnal.
+   - Food Cost menggunakan HPP per porsi dibanding harga item historis sebelum komisi; kontribusi laba memakai penjualan bersih setelah komisi. Biaya batch aktual dipakai bila tersedia, dengan estimasi resep FIFO sebagai fallback. Skema menu saat ini tidak memiliki kategori, jadi filter kategori tidak disediakan.
+   - Migrasi contoh menu lama menyediakan resep dan transaksi historis contoh; modul analisis tidak membuat transaksi dummy baru. Menu yang dinonaktifkan tetap bisa muncul bila memiliki penjualan historis.
 
 9. **🖨️ Ekspor & Cetak Dokumen Resmi**
    - **Cetak PDF:** Layout khusus pencetakan dokumen formal (otomatis menghilangkan elemen antarmuka seperti sidebar dan tombol saat dicetak).
@@ -75,6 +77,10 @@ Sistem ini tidak hanya mencatat data, tetapi juga memiliki fungsi analitik dan p
 - Grafik dashboard menampilkan tren penjualan dan profitabilitas harian, penjualan per menu, serta biaya per kategori. Peringatan merangkum stok minimum, batch yang mendekati kedaluwarsa, kewajiban belum dibayar, dan penurunan penjualan/margin.
 - Saldo kas/bank dan piutang marketplace ditandai tidak tersedia selama data saldo awal atau settlement belum dicatat oleh sistem; keduanya tidak ditampilkan sebagai angka nol atau estimasi yang seolah-olah pasti.
 - Aksi cepat mengarahkan pengguna ke kasir, pembelian, pencatatan biaya, resep, stok opname, dan laporan keuangan.
+- POS menampilkan kartu menu yang dapat dicari, keranjang dengan kontrol kuantitas, hitung kembalian tunai, konfirmasi transaksi, serta struk cetak/PDF. Riwayat transaksi mendukung pencarian nomor, tanggal, metode pembayaran, dan detail. Uang diterima hanya untuk hitung kembalian di layar dan tidak disimpan karena kolom transaksi belum tersedia.
+- Menu tidak tersedia ditandai dan tidak dapat dimasukkan ke keranjang. Skema saat ini tidak menyediakan kategori/gambar produk maupun status transaksi selain transaksi tersimpan, sehingga POS tidak mengada-adakan filter tersebut.
+- Jurnal Umum dan Buku Besar merangkum transaksi tersimpan menjadi baris debit-kredit untuk penjualan, HPP, pembelian persediaan, biaya, pelunasan utang, food waste, dan penyesuaian stok. Tersedia filter akun/periode, ekspor CSV, serta neraca saldo mutasi; laporan laba rugi dan arus kas tetap menggunakan sumber transaksi yang sama.
+- Neraca saldo mutasi bukan neraca posisi keuangan: saldo awal akun/modal serta penerimaan settlement marketplace belum dicatat pada skema, dan mutasi stok/pembayaran historis yang metode pembayarannya tidak diketahui dipisahkan sebagai akun penyeimbang.
 - Ringkasan KPI untuk nilai persediaan, HPP hari ini, dan penjualan hari ini; indikator restock dan kedaluwarsa ditampilkan sebagai banner peringatan.
 - Komponen kartu, tabel, badge, input, dan tombol menggunakan gaya responsif; tabel lebar dapat digulir secara horizontal pada layar kecil, dengan fokus aksesibel serta dukungan pengurangan animasi.
 - Toast non-blocking memberi konfirmasi untuk aksi penting, termasuk penambahan item kasir dan penyimpanan transaksi.

@@ -251,51 +251,88 @@
             <section id="page-kasir" class="page-section">
                 <div class="header-title">
                     <h1>Kasir & Penjualan</h1>
-                    <p>Pilih menu, susun keranjang, lalu simpan penjualan untuk memotong stok sesuai resep.</p>
+                    <p>Pilih menu, kelola keranjang, dan selesaikan transaksi. Stok dan jurnal diperbarui melalui alur transaksi yang sama.</p>
                 </div>
 
-                <div class="card form-card pos-add-card">
-                    <form id="pos-add-form">
-                        <div class="form-group">
-                            <label for="pos-menu-select">Menu Pizza</label>
-                            <select id="pos-menu-select" required><option value="">Memuat menu...</option></select>
+                <div class="pos-layout">
+                    <section class="card pos-products-card" aria-label="Menu tersedia">
+                        <div class="pos-section-heading">
+                            <div><h2>Pilih Menu</h2><p id="pos-menu-count" class="report-note">Memuat menu...</p></div>
+                            <label class="pos-search">
+                                <i data-lucide="search"></i>
+                                <input id="pos-menu-search" type="search" placeholder="Cari menu pizza..." aria-label="Cari nama menu">
+                            </label>
                         </div>
-                        <div class="form-group">
-                            <label for="pos-quantity">Jumlah</label>
-                            <input type="number" id="pos-quantity" min="1" step="1" value="1" required>
+                        <div id="pos-menu-grid" class="pos-menu-grid" aria-live="polite">
+                            <div class="pos-loading"><span class="loading-spinner"></span>Memuat menu...</div>
                         </div>
-                        <div class="form-group">
-                            <label for="pos-payment-method">Metode Pembayaran</label>
+                    </section>
+
+                    <aside class="card pos-cart-card" aria-label="Keranjang dan pembayaran">
+                        <div class="pos-section-heading"><div><h2>Keranjang</h2><p id="pos-cart-count" class="report-note">0 item</p></div><i data-lucide="shopping-bag"></i></div>
+                        <div id="pos-cart-items" class="pos-cart-items">
+                            <div class="pos-cart-empty"><i data-lucide="shopping-basket"></i><strong>Keranjang masih kosong</strong><span>Pilih menu untuk memulai transaksi.</span></div>
+                        </div>
+                        <div class="pos-cart-summary">
+                            <div class="pos-subtotal-row"><span>Subtotal</span><strong id="pos-subtotal">Rp 0</strong></div>
+                            <div class="pos-total-row"><span>Total tagihan</span><strong id="pos-total">Rp 0</strong></div>
+                            <p id="pos-settlement-preview" class="pos-payment-note">Pilih metode pembayaran.</p>
+                            <label for="pos-payment-method">Metode pembayaran</label>
                             <select id="pos-payment-method" required>
                                 <option value="CASH">Tunai (Kas)</option>
                                 <option value="QRIS">QRIS / Bank Transfer</option>
                                 <option value="GOFOOD">GoFood (Komisi 20%)</option>
                                 <option value="GRABFOOD">GrabFood (Komisi 20%)</option>
                             </select>
+                            <div id="pos-cash-fields" class="pos-cash-fields">
+                                <label for="pos-cash-received">Uang diterima</label>
+                                <input type="number" id="pos-cash-received" min="0" step="1" inputmode="numeric" placeholder="Masukkan nominal yang diterima">
+                                <div class="pos-change-row"><span>Kembalian</span><strong id="pos-change">Rp 0</strong></div>
+                            </div>
+                            <button type="button" id="pos-checkout-button" class="btn pos-checkout-button" disabled><i data-lucide="circle-check"></i>Simpan Penjualan</button>
+                            <p class="pos-accounting-note">Diskon dan pajak tidak diterapkan; belum tersedia dalam alur transaksi saat ini.</p>
                         </div>
-                        <button type="submit" class="btn">➕ Tambahkan ke Keranjang</button>
-                    </form>
+                    </aside>
                 </div>
 
-                <div class="card pos-cart-card">
-                    <h3>🛍️ Keranjang Penjualan</h3>
+                <section class="card pos-history-card">
+                    <div class="pos-section-heading"><div><h2>Riwayat Penjualan</h2><p class="report-note">Menampilkan transaksi tersimpan terbaru. Detail berisi item dan metode pembayaran.</p></div>
+                        <button type="button" class="btn btn-remove" id="pos-history-refresh"><i data-lucide="refresh-cw"></i>Perbarui</button>
+                    </div>
+                    <div class="pos-history-filters">
+                        <label class="pos-history-search" for="pos-history-search">Nomor transaksi
+                            <input id="pos-history-search" type="search" inputmode="numeric" placeholder="Cari nomor transaksi">
+                        </label>
+                        <label for="pos-history-start">Dari tanggal<input type="date" id="pos-history-start"></label>
+                        <label for="pos-history-end">Sampai tanggal<input type="date" id="pos-history-end"></label>
+                        <label for="pos-history-payment">Metode pembayaran
+                            <select id="pos-history-payment">
+                                <option value="">Semua metode</option><option value="CASH">Tunai (Kas)</option>
+                                <option value="QRIS">QRIS / Bank Transfer</option><option value="GOFOOD">GoFood</option><option value="GRABFOOD">GrabFood</option>
+                            </select>
+                        </label>
+                        <label for="pos-history-status">Status
+                            <select id="pos-history-status"><option value="">Semua status</option><option value="saved">Tersimpan</option></select>
+                        </label>
+                    </div>
                     <div class="table-scroll">
-                        <table class="table">
-                            <thead>
-                                <tr><th>Menu</th><th>Harga</th><th>Jumlah</th><th>Subtotal</th><th>Aksi</th></tr>
-                            </thead>
-                            <tbody id="pos-cart-table">
-                                <tr><td colspan="5">Keranjang masih kosong.</td></tr>
-                            </tbody>
+                        <table class="table pos-history-table">
+                            <thead><tr><th>Waktu</th><th>No. Transaksi</th><th>Metode</th><th>Total</th><th>Status</th><th>Detail</th></tr></thead>
+                            <tbody id="pos-history-table"><tr><td colspan="6">Memuat riwayat penjualan...</td></tr></tbody>
                         </table>
                     </div>
-                    <div class="pos-checkout">
-                        <strong>Total: <span id="pos-total">Rp 0</span></strong>
-                        <span id="pos-settlement-preview">Diterima: Rp 0</span>
-                        <button type="button" id="pos-checkout-button" class="btn" disabled>✅ Simpan Penjualan</button>
-                    </div>
-                </div>
+                    <p class="report-note">Skema hanya menyimpan transaksi yang berhasil. Status pending/gagal dan pelunasan tunai tidak dicatat.</p>
+                </section>
             </section>
+
+            <dialog id="pos-receipt-dialog" class="pos-receipt-dialog" aria-labelledby="pos-receipt-title">
+                <div class="pos-receipt-actions">
+                    <button type="button" class="btn btn-remove" id="pos-receipt-print"><i data-lucide="printer"></i>Cetak / Simpan PDF</button>
+                    <button type="button" class="btn btn-remove" id="pos-receipt-close" aria-label="Tutup struk"><i data-lucide="x"></i>Tutup</button>
+                </div>
+                <div id="pos-receipt-content" class="pos-receipt-content"></div>
+                <button type="button" class="btn pos-new-sale-button" id="pos-new-sale"><i data-lucide="plus"></i>Transaksi Baru</button>
+            </dialog>
 
             <!-- HALAMAN 3: RESEP -->
             <section id="page-resep" class="page-section">
@@ -400,39 +437,77 @@
             <section id="page-jurnal" class="page-section">
                 <div class="header-title flex-between">
                     <div>
-                        <h1>Buku Jurnal Umum</h1>
-                        <p>Rekapitulasi otomatis metode perpetual.</p>
+                        <h1>Jurnal Umum & Buku Besar</h1>
+                        <p>Catatan debit-kredit seluruh transaksi penjualan, persediaan, biaya, dan pembayaran.</p>
                     </div>
                     <div style="display: flex; gap: 10px; align-items: center;">
-                        <select id="filter-ingredient" onchange="applyLedgerFilter()" class="filter-select">
-                            <option value="">Semua Bahan (Jurnal Umum)</option>
-                        </select>
                         <!-- FITUR BARU: Tombol Cetak PDF -->
                         <button onclick="window.print()" class="btn btn-print">🖨️ Cetak PDF</button>
-                        <button onclick="downloadExcel()" class="btn btn-export">📥 Excel</button>
+                        <button id="accounting-journal-export" type="button" class="btn btn-export">📥 Ekspor CSV</button>
                     </div>
                 </div>
 
-                <div class="card">
+                <div class="card report-filter-card">
+                    <div class="report-date-filter accounting-journal-filters">
+                        <div class="form-group"><label for="accounting-start-date">Dari tanggal</label><input type="date" id="accounting-start-date"></div>
+                        <div class="form-group"><label for="accounting-end-date">Sampai tanggal</label><input type="date" id="accounting-end-date"></div>
+                        <div class="form-group"><label for="accounting-account-filter">Akun buku besar</label><select id="accounting-account-filter"><option value="">Semua akun</option></select></div>
+                        <button id="accounting-journal-apply" type="button" class="btn">Tampilkan</button>
+                        <button id="accounting-journal-reset" type="button" class="btn btn-remove">Semua tanggal</button>
+                    </div>
+                    <p class="report-note">Jurnal disusun dari transaksi yang tercatat pada sistem. Saldo berjalan adalah akumulasi mutasi sejak transaksi historis pertama yang tersedia, bukan saldo aktual karena saldo awal akun belum dicatat.</p>
+                </div>
+
+                <div class="card report-card">
+                    <div class="executive-card-heading"><div><h2>Neraca Saldo Mutasi</h2><p id="accounting-period-label" class="report-note">Semua transaksi</p></div></div>
                     <div class="table-scroll">
-                        <table class="table journal-table">
+                        <table class="table">
+                            <thead><tr><th>Akun</th><th>Debit (Rp)</th><th>Kredit (Rp)</th><th>Saldo Mutasi</th></tr></thead>
+                            <tbody id="accounting-trial-balance"><tr><td colspan="4">Memuat jurnal akuntansi...</td></tr></tbody>
+                            <tfoot id="accounting-trial-balance-total"></tfoot>
+                        </table>
+                    </div>
+                    <p id="accounting-balance-note" class="report-note"></p>
+                </div>
+
+                <div class="card report-card">
+                    <h2>Jurnal Umum</h2>
+                    <div class="table-scroll">
+                        <table class="table accounting-journal-table">
                             <thead>
                                 <tr>
                                     <th>Tanggal</th>
-                                    <th>Tipe</th>
-                                    <th>Keterangan Transaksi / Akun</th>
+                                    <th>No. Referensi</th>
+                                    <th>Keterangan</th>
+                                    <th>Akun</th>
                                     <th>Debit (Rp)</th>
                                     <th>Kredit (Rp)</th>
+                                    <th>Saldo Mutasi Berjalan</th>
                                 </tr>
                             </thead>
-                            <tbody id="journal-table">
-                                <tr><td colspan="5">Memuat jurnal...</td></tr>
+                            <tbody id="accounting-journal-table">
+                                <tr><td colspan="7">Memuat jurnal akuntansi...</td></tr>
                             </tbody>
                         </table>
                     </div>
                 </div>
+
                 <div class="card report-card">
-                    <h2>Jurnal Penjualan</h2>
+                    <div class="flex-between">
+                        <div><h2>Buku Pembantu Persediaan</h2><p class="report-note">Rincian mutasi kuantitas dan nilai bahan baku; jurnal lengkap di atas mencakup seluruh akun.</p></div>
+                        <select id="filter-ingredient" onchange="applyLedgerFilter()" class="filter-select">
+                            <option value="">Semua Bahan</option>
+                        </select>
+                    </div>
+                    <div class="table-scroll">
+                        <table class="table journal-table">
+                            <thead><tr><th>Tanggal</th><th>Tipe</th><th>Keterangan Transaksi / Akun</th><th>Debit (Rp)</th><th>Kredit (Rp)</th></tr></thead>
+                            <tbody id="journal-table"><tr><td colspan="5">Memuat buku pembantu...</td></tr></tbody>
+                        </table>
+                    </div>
+                </div>
+                <div class="card report-card">
+                    <h2>Rincian Transaksi Penjualan</h2>
                     <div class="table-scroll">
                         <table class="table">
                             <thead>
@@ -475,33 +550,106 @@
                     <div class="flex-between menu-engineering-header">
                         <div>
                             <h2>Analisis Menu Engineering & Food Cost %</h2>
-                            <p class="report-note">Periode penjualan 30 hari terakhir; penjualan tinggi berarti unit terjual di atas median seluruh menu. Food Cost &lt;30% = ideal, 30–35% = normal, &gt;35% = tinggi.</p>
+                            <p class="report-note">Analisis kontribusi laba dari data penjualan historis. Hasil diperbarui berdasarkan filter periode dan menu.</p>
                         </div>
-                        <button type="button" id="menu-engineering-refresh" class="btn">🔄 Perbarui Analisis</button>
+                        <button type="button" id="menu-engineering-refresh" class="btn"><i data-lucide="refresh-cw"></i> Perbarui Analisis</button>
+                    </div>
+                    <div class="menu-engineering-filters">
+                        <div class="form-group">
+                            <label for="menu-engineering-period">Periode</label>
+                            <select id="menu-engineering-period">
+                                <option value="today">Hari ini</option>
+                                <option value="last7">7 hari terakhir</option>
+                                <option value="this-month" selected>Bulan ini</option>
+                                <option value="previous-month">Bulan sebelumnya</option>
+                                <option value="custom">Rentang kustom</option>
+                            </select>
+                        </div>
+                        <div class="form-group menu-engineering-custom-date" hidden>
+                            <label for="menu-engineering-start-date">Dari tanggal</label>
+                            <input type="date" id="menu-engineering-start-date">
+                        </div>
+                        <div class="form-group menu-engineering-custom-date" hidden>
+                            <label for="menu-engineering-end-date">Sampai tanggal</label>
+                            <input type="date" id="menu-engineering-end-date">
+                        </div>
+                        <div class="form-group">
+                            <label for="menu-engineering-menu-filter">Menu</label>
+                            <select id="menu-engineering-menu-filter"><option value="">Semua menu</option></select>
+                        </div>
+                        <button type="button" id="menu-engineering-apply" class="btn">Terapkan Filter</button>
+                    </div>
+                    <div class="menu-engineering-period-caption">
+                        <strong>Periode analisis: <span id="menu-engineering-period-label">Menunggu data...</span></strong>
+                        <span id="menu-engineering-comparison-label" class="report-note">Periode pembanding akan ditampilkan setelah analisis.</span>
+                    </div>
+                    <div class="menu-engineering-threshold-card">
+                        <strong>Dasar klasifikasi Menu Engineering</strong>
+                        <p id="menu-engineering-threshold-note" class="report-note">Batas popularitas dan profitabilitas akan dihitung dari penjualan periode ini.</p>
+                        <p class="report-note">Popularitas tinggi = unit terjual minimal 70% rata-rata unit per menu. Margin tinggi = kontribusi laba kotor per porsi minimal sama dengan rata-rata tertimbang kontribusi per porsi seluruh menu terjual.</p>
                     </div>
                     <div class="menu-engineering-chart">
-                        <canvas id="menu-engineering-chart" aria-label="Perbandingan harga jual saat ini dan rekomendasi harga ideal per menu"></canvas>
+                        <canvas id="menu-engineering-chart" aria-label="Scatter plot popularitas menu dan kontribusi laba kotor per porsi"></canvas>
                     </div>
+                    <p class="report-note">Setiap titik mewakili satu menu. Sumbu horizontal menunjukkan porsi terjual, sumbu vertikal menunjukkan kontribusi laba kotor per porsi setelah alokasi komisi platform. Garis putus-putus menunjukkan batas klasifikasi. Arahkan kursor ke titik untuk detail; tabel di bawah tetap menjadi sumber angka.</p>
+                    <div class="menu-engineering-recommendation-card">
+                        <h3>Rekomendasi berbasis data</h3>
+                        <div id="menu-engineering-recommendations" class="menu-engineering-recommendations">
+                            <p class="report-note">Rekomendasi akan ditampilkan setelah analisis selesai.</p>
+                        </div>
+                    </div>
+                    <section id="menu-engineering-simulation" class="menu-engineering-simulation" hidden aria-labelledby="menu-simulation-heading">
+                        <div class="menu-simulation-header">
+                            <div>
+                                <span class="simulation-label">SIMULASI — tidak mengubah harga aktual</span>
+                                <h3 id="menu-simulation-heading">Simulasi harga: <span id="menu-simulation-name"></span></h3>
+                            </div>
+                            <button type="button" id="menu-simulation-close" class="btn btn-remove">Tutup</button>
+                        </div>
+                        <div class="menu-simulation-fields">
+                            <div class="form-group">
+                                <label>HPP per porsi yang digunakan</label>
+                                <output id="menu-simulation-hpp" class="menu-simulation-output"></output>
+                            </div>
+                            <div class="form-group">
+                                <label for="menu-simulation-price">Harga jual alternatif (Rp)</label>
+                                <input id="menu-simulation-price" type="number" min="1" step="500" inputmode="numeric">
+                            </div>
+                            <div class="form-group">
+                                <label for="menu-simulation-target">Target food cost usaha (%)</label>
+                                <input id="menu-simulation-target" type="number" min="1" max="99" step="0.5" value="30">
+                            </div>
+                        </div>
+                        <div id="menu-simulation-result" class="menu-simulation-result" aria-live="polite"></div>
+                        <div class="menu-simulation-actions">
+                            <button type="button" id="menu-simulation-save-target" class="btn">Simpan Target Analisis</button>
+                            <button type="button" id="menu-simulation-reset" class="btn btn-remove">Kembalikan Harga Awal</button>
+                        </div>
+                    </section>
                     <div class="table-scroll">
-                        <table class="table">
+                        <table class="table menu-engineering-table">
                             <thead>
                                 <tr>
                                     <th>Menu</th>
-                                    <th>HPP / Porsi</th>
-                                    <th>Harga Jual</th>
+                                    <th>Unit terjual</th>
+                                    <th>Penjualan bersih</th>
+                                    <th>HPP / porsi</th>
+                                    <th>Total HPP</th>
+                                    <th>Laba kotor / porsi</th>
+                                    <th>Kontribusi laba kotor</th>
                                     <th>Food Cost %</th>
-                                    <th>Terjual (30 hari)</th>
-                                    <th>Kategori</th>
-                                    <th>Rentang Harga Ideal (28–32%)</th>
-                                    <th>Harga Target (30%)</th>
+                                    <th>Kontribusi penjualan</th>
+                                    <th>Perubahan kontribusi</th>
+                                    <th>Klasifikasi</th>
+                                    <th>Simulasi</th>
                                 </tr>
                             </thead>
                             <tbody id="menu-engineering-table">
-                                <tr><td colspan="8">Buka laporan untuk memuat analisis menu.</td></tr>
+                                <tr><td colspan="12">Buka laporan untuk memuat analisis menu.</td></tr>
                             </tbody>
                         </table>
                     </div>
-                    <p class="report-note">HPP memakai biaya batch aktual untuk menu yang terjual dalam periode ini. Menu tanpa penjualan memakai estimasi biaya resep berdasarkan batch FIFO yang tersedia, dengan harga rata-rata bahan sebagai cadangan jika stok batch tidak mencukupi.</p>
+                    <p id="menu-engineering-data-note" class="report-note">Perhitungan menggunakan data historis dan biaya HPP dari sistem.</p>
                 </div>
 
                 <div class="report-summary-grid">
@@ -537,6 +685,7 @@
                         </table>
                     </div>
                     <p class="report-note">Pembelian bahan baku dicatat sebagai persediaan; HPP dihitung saat stok digunakan. Pajak dan biaya yang belum dicatat tidak termasuk.</p>
+                    <p class="report-note">Laba rugi menggunakan basis akrual atas transaksi yang tersimpan. Saldo awal aset, modal, dan kewajiban tidak tersedia untuk menyusun neraca posisi keuangan.</p>
                 </div>
 
                 <div class="card report-card">
