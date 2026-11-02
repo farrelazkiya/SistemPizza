@@ -1,6 +1,16 @@
 const SUPABASE_URL = "https://llpcuhsotoadmljeryhz.supabase.co"; 
 const SUPABASE_ANON_KEY = "sb_publishable_qEmqkUCuZgmTBmwTSLMvNg_1mVAjU9p"; 
-const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+let supabaseClient = null;
+let supabaseClientError = '';
+try {
+    if (!window.supabase?.createClient) {
+        throw new Error('Library Supabase tidak berhasil dimuat. Periksa koneksi internet lalu muat ulang halaman.');
+    }
+    supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+} catch (error) {
+    supabaseClientError = error.message || 'Client Supabase gagal diinisialisasi.';
+    console.error('Gagal menginisialisasi Supabase:', error);
+}
 let authenticatedProfile = null;
 let initializedUserId = null;
 let authStateRequest = 0;
@@ -3612,6 +3622,7 @@ document.getElementById('login-form').addEventListener('submit', async event => 
     submit.disabled = true;
     setLoginMessage('');
     try {
+        if (!supabaseClient) throw new Error(supabaseClientError || 'Layanan autentikasi belum tersedia.');
         const { error } = await supabaseClient.auth.signInWithPassword({
             email: document.getElementById('login-email').value.trim(),
             password: document.getElementById('login-password').value
@@ -3636,6 +3647,10 @@ document.getElementById('toggle-password').addEventListener('click', event => {
 });
 
 const signOut = async () => {
+    if (!supabaseClient) {
+        showToast(supabaseClientError || 'Layanan autentikasi belum tersedia.', 'error');
+        return;
+    }
     const { error } = await supabaseClient.auth.signOut();
     if (error) {
         console.error('Gagal logout:', error);
@@ -3655,18 +3670,22 @@ window.addEventListener('online', () => {
     loadSuppliersAndMenus();
 });
 window.addEventListener('offline', () => setDatabaseStatus('offline'));
-document.getElementById('auth-loading').classList.remove('hidden');
-supabaseClient.auth.onAuthStateChange((_event, session) => {
-    window.setTimeout(() => { void syncAuthSession(session); }, 0);
-});
-supabaseClient.auth.getSession().then(({ data, error }) => {
-    if (error) {
+if (!supabaseClient) {
+    showLoginView(supabaseClientError || 'Layanan autentikasi belum tersedia.');
+} else {
+    showLoginView();
+    supabaseClient.auth.onAuthStateChange((_event, session) => {
+        window.setTimeout(() => { void syncAuthSession(session); }, 0);
+    });
+    supabaseClient.auth.getSession().then(({ data, error }) => {
+        if (error) {
+            console.error('Gagal memeriksa sesi:', error);
+            showLoginView('Sesi tidak dapat diperiksa. Anda dapat mencoba login kembali.');
+            return;
+        }
+        void syncAuthSession(data.session);
+    }).catch(error => {
         console.error('Gagal memeriksa sesi:', error);
-        showLoginView(error.message || 'Sesi gagal diperiksa.');
-        return;
-    }
-    void syncAuthSession(data.session);
-}).catch(error => {
-    console.error('Gagal memeriksa sesi:', error);
-    showLoginView(error.message || 'Sesi gagal diperiksa.');
-});
+        showLoginView('Sesi tidak dapat diperiksa. Anda dapat mencoba login kembali.');
+    });
+}
