@@ -126,8 +126,37 @@ Jika ingin mengembangkan atau menjalankan aplikasi ini di komputer lokal:
 2. Buka folder `SistemPizza` di *code editor* pilihanmu (misalnya VS Code).
 3. Karena aplikasi ini menggunakan Vanilla JS dengan CDN Supabase, kamu cukup membuka file `index.html` menggunakan *browser* (direkomendasikan menggunakan ekstensi **Live Server** di VS Code).
 4. *Catatan:* Konfigurasi URL dan API Key Supabase sudah diinisialisasi secara statis di dalam file `app.js` menggunakan *Anon Key*.
-5. Untuk database Supabase yang sudah memiliki skema dan data awal aplikasi, jalankan `Backend/seed.sql`, lalu migrasi SQL di folder `Backend` sesuai urutan: `point_of_sale.sql`, `financial_reports.sql`, `suppliers_and_spoilage.sql`, `multi_payment.sql`, `food_waste_stocktake.sql`, `batch_fifo.sql`, `menu_engineering_sample_menus.sql`, lalu `menu_selection_cleanup.sql`. Migrasi batch mengaktifkan pelacakan FIFO; migrasi menu menambahkan lima menu contoh dan resepnya, serta mencatat 25 porsi penjualan dummy tunai melalui RPC kasir. Penjualan sampel memengaruhi pendapatan, biaya HPP, dan stok, serta ditandai agar tidak dibuat ulang jika migrasi menu dijalankan lagi. Migrasi terakhir menonaktifkan tiga menu awal dari pilihan kasir/resep tanpa menghapus transaksi atau data historisnya. Menu contoh membutuhkan bahan dari `seed.sql` dan fungsi kasir dari `multi_payment.sql`. Stok yang sudah ada akan dimasukkan ke batch pembukaan dengan biaya unit rata-rata saat migrasi batch dijalankan.
+5. Siapkan database Supabase:
+   - Untuk database baru yang masih kosong, jalankan `Backend/schema.sql` terlebih dahulu untuk membuat tabel inti.
+   - Untuk database yang sudah memiliki tabel inti aplikasi, lewati langkah skema.
+   - Jalankan `Backend/seed.sql` satu kali untuk memasukkan data awal, lalu migrasi SQL di folder `Backend` sesuai urutan: `point_of_sale.sql`, `financial_reports.sql`, `suppliers_and_spoilage.sql`, `multi_payment.sql`, `food_waste_stocktake.sql`, `batch_fifo.sql`, `menu_engineering_sample_menus.sql`, lalu `menu_selection_cleanup.sql`.
+
+   Migrasi batch mengaktifkan pelacakan FIFO; migrasi menu menambahkan lima menu contoh dan resepnya, serta mencatat 25 porsi penjualan dummy tunai melalui RPC kasir. Penjualan sampel memengaruhi pendapatan, biaya HPP, dan stok, serta ditandai agar tidak dibuat ulang jika migrasi menu dijalankan lagi. Migrasi terakhir menonaktifkan tiga menu awal dari pilihan kasir/resep tanpa menghapus transaksi atau data historisnya. Menu contoh membutuhkan bahan dari `seed.sql` dan fungsi kasir dari `multi_payment.sql`. Stok yang sudah ada akan dimasukkan ke batch pembukaan dengan biaya unit rata-rata saat migrasi batch dijalankan.
 6. Untuk mengisi lingkungan **development/test** dengan data tambahan di berbagai modul, jalankan `Backend/demo_data.sql` setelah seluruh langkah di atas. Skrip ini menambahkan 90 transaksi penjualan bertanggal selama 90 hari terakhir, resep/menu tambahan, pembelian batch, biaya operasional, food waste, serta penyesuaian stok opname. Data hanya ditambahkan sekali, ditandai `[DEMO]` pada keterangan yang tersedia, dan tidak menghapus atau menimpa transaksi yang sudah ada. Skrip ini menambah transaksi nyata ke tabel laporan dan mengubah jumlah stok, jadi jangan jalankan pada database produksi. Saldo awal kas dan settlement marketplace tetap tidak tersedia karena tidak ada kolom/sumber pencatatan untuk keduanya.
+
+## Login dan Role-Based Access Control
+
+1. Jalankan `Backend/auth_rbac.sql` **setelah semua migrasi database lain**. Migration ini membuat profil role dan mengaktifkan RLS pada tabel operasional yang digunakan aplikasi tanpa menghapus atau mengubah baris transaksi.
+2. Buat pengguna pertama melalui **Supabase Dashboard → Authentication → Users → Add user**. Setelah itu, ubah placeholder email di SQL berikut lalu jalankan di SQL Editor untuk memberikan role Owner pertama:
+   ```sql
+   update public.profiles
+   set role = 'owner', updated_at = now()
+   where id = (select id from auth.users where email = 'owner@contoh.com');
+   ```
+   Pastikan query mengubah tepat satu baris. Pengguna baru lainnya otomatis mendapat role `cashier` sampai Owner mengubahnya.
+3. Deploy `supabase/functions/admin-users` sebagai Edge Function bernama `admin-users` menggunakan Supabase CLI:
+   ```bash
+   supabase login
+   supabase link --project-ref llpcuhsotoadmljeryhz
+   supabase functions deploy admin-users
+   ```
+   Pertahankan pemeriksaan JWT bawaan. Pastikan secret `SUPABASE_SERVICE_ROLE_KEY` tersedia untuk Edge Function (gunakan Function Secrets di Supabase Dashboard jika belum disediakan otomatis); jangan menambahkannya ke `app.js`, HTML, atau repository. URL dan publishable/anon key frontend memang bersifat publik; keamanan data ditentukan oleh autentikasi dan RLS.
+4. Pada Supabase Authentication, nonaktifkan **public sign-ups** karena pembuatan akun hanya dilakukan oleh Owner yang sudah login. Edge Function mengonfirmasi email saat membuat akun, jadi SMTP tidak diperlukan untuk demo ini.
+5. Setelah login, Owner dapat membuat akun Admin/Cashier, mengubah role, dan mengaktifkan/menonaktifkan akun dari menu **Manajemen Akun**. User yang dinonaktifkan tidak dapat login atau memperbarui sesi berikutnya.
+
+Role menu aplikasi: Owner mengakses seluruh halaman yang tersedia, Admin mengakses dashboard operasional, kasir, resep, persediaan, dan biaya, sedangkan Cashier hanya mengakses kasir serta riwayat penjualan. Dashboard Admin tidak menampilkan ringkasan finansial Owner. RLS menerapkan kebijakan role pada tabel di database: Cashier hanya dapat membaca data POS, Admin tidak dapat membaca jurnal `inventory_logs` atau detail konsumsi batch, dan hanya Owner dapat membaca data jurnal tersebut. Mutasi stok Admin dilakukan lewat operasi yang diizinkan. Tabel penjualan dan biaya tetap dapat dibaca Admin/Cashier untuk kebutuhan riwayat/biaya; data yang memang diperlukan modul operasional tidak dapat disembunyikan sepenuhnya tanpa memisahkan sumber laporan menjadi API/view khusus.
+
+Untuk demo, uji login Owner, buat satu akun Admin dan Cashier dari Manajemen Akun, lalu panggil `switchPage('page-laporan', null)` sebagai Admin dan `switchPage('page-jurnal', null)` sebagai Cashier untuk memastikan pesan Access Denied. Untuk menguji batas database, jalankan query REST/PostgREST menggunakan sesi Admin dan pastikan `inventory_logs` serta `inventory_batch_consumptions` tidak mengembalikan baris; ulangi dengan sesi Cashier dan pastikan query `profiles` pengguna lain, `ingredients`, `inventory_logs`, dan `operating_expenses` juga tidak mengembalikan baris. RPC mutasi stok Cashier harus gagal, sementara akses penjualan POS yang diizinkan tetap berfungsi.
 
 ---
 *Dibuat untuk memenuhi tugas Ujian Tengah Semester (UTS) / Evaluasi Proyek Mata Kuliah Sistem Informasi Akuntansi.*

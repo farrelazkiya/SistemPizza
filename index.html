@@ -17,7 +17,34 @@
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
-    <div class="app-container">
+    <main id="login-view" class="auth-screen">
+        <section class="auth-card" aria-labelledby="login-title">
+            <div class="auth-brand"><span class="brand-mark">🍕</span><div><h1>Pizza Craft</h1><p>Workspace operasional</p></div></div>
+            <div id="auth-loading" class="auth-message" role="status">Memeriksa sesi...</div>
+            <form id="login-form" class="auth-form hidden">
+                <div>
+                    <h2 id="login-title">Selamat datang kembali</h2>
+                    <p>Masuk untuk melanjutkan ke workspace Pizza Craft.</p>
+                </div>
+                <div id="login-error" class="auth-error hidden" role="alert"></div>
+                <div class="form-group">
+                    <label for="login-email">Email</label>
+                    <input id="login-email" type="email" autocomplete="username" required>
+                </div>
+                <div class="form-group">
+                    <label for="login-password">Password</label>
+                    <div class="password-field">
+                        <input id="login-password" type="password" autocomplete="current-password" required>
+                        <button id="toggle-password" class="password-toggle" type="button" aria-label="Tampilkan password">Tampilkan</button>
+                    </div>
+                </div>
+                <button id="login-submit" class="btn auth-submit" type="submit">Login</button>
+                <p class="auth-footnote">Akun dibuat dan dikelola oleh Owner Pizza Craft.</p>
+            </form>
+        </section>
+    </main>
+
+    <div class="app-container" hidden>
         <!-- SIDEBAR KIRI -->
         <aside class="sidebar">
             <div class="sidebar-header">
@@ -26,17 +53,23 @@
             </div>
             <ul class="sidebar-menu">
                 <li class="nav-section-title" aria-hidden="true">Dashboard</li>
-                <li class="active" title="Dashboard Utama" aria-label="Dashboard Utama" onclick="switchPage('page-dashboard', this)"><i data-lucide="layout-dashboard"></i><span>Dashboard Utama</span></li>
+                <li class="active" data-page="page-dashboard" title="Dashboard Utama" aria-label="Dashboard Utama" onclick="switchPage('page-dashboard', this)"><i data-lucide="layout-dashboard"></i><span>Dashboard Utama</span></li>
                 <li class="nav-section-title" aria-hidden="true">Operasional</li>
-                <li title="Kasir & Penjualan" aria-label="Kasir & Penjualan" onclick="switchPage('page-kasir', this)"><i data-lucide="shopping-cart"></i><span>Kasir & Penjualan</span></li>
-                <li title="Kelola Resep" aria-label="Kelola Resep" onclick="switchPage('page-resep', this)"><i data-lucide="notebook-tabs"></i><span>Kelola Resep</span></li>
+                <li data-page="page-kasir" title="Kasir & Penjualan" aria-label="Kasir & Penjualan" onclick="switchPage('page-kasir', this)"><i data-lucide="shopping-cart"></i><span>Kasir & Penjualan</span></li>
+                <li data-page="page-resep" title="Kelola Resep" aria-label="Kelola Resep" onclick="switchPage('page-resep', this)"><i data-lucide="notebook-tabs"></i><span>Kelola Resep</span></li>
                 <li class="nav-section-title" aria-hidden="true">Persediaan</li>
-                <li title="Catat Transaksi" aria-label="Catat Transaksi" onclick="switchPage('page-transaksi', this)"><i data-lucide="clipboard-list"></i><span>Catat Transaksi</span></li>
+                <li data-page="page-transaksi" title="Catat Transaksi" aria-label="Catat Transaksi" onclick="switchPage('page-transaksi', this)"><i data-lucide="clipboard-list"></i><span>Catat Transaksi</span></li>
                 <li class="nav-section-title" aria-hidden="true">Keuangan</li>
-                <li title="Buku Besar & Laporan" aria-label="Buku Besar & Laporan" onclick="switchPage('page-jurnal', this)"><i data-lucide="book-open-check"></i><span>Buku Besar & Laporan</span></li>
-                <li title="Laba Rugi & Arus Kas" aria-label="Laba Rugi & Arus Kas" onclick="switchPage('page-laporan', this)"><i data-lucide="chart-no-axes-combined"></i><span>Laba Rugi & Arus Kas</span></li>
+                <li data-page="page-biaya" title="Biaya Operasional" aria-label="Biaya Operasional" onclick="switchPage('page-biaya', this)"><i data-lucide="receipt"></i><span>Biaya Operasional</span></li>
+                <li data-page="page-jurnal" title="Buku Besar & Laporan" aria-label="Buku Besar & Laporan" onclick="switchPage('page-jurnal', this)"><i data-lucide="book-open-check"></i><span>Buku Besar & Laporan</span></li>
+                <li data-page="page-laporan" title="Laba Rugi & Arus Kas" aria-label="Laba Rugi & Arus Kas" onclick="switchPage('page-laporan', this)"><i data-lucide="chart-no-axes-combined"></i><span>Laba Rugi & Arus Kas</span></li>
+                <li class="nav-section-title" aria-hidden="true">Administrasi</li>
+                <li data-page="page-users" title="Manajemen Akun" aria-label="Manajemen Akun" onclick="switchPage('page-users', this)"><i data-lucide="users-round"></i><span>Manajemen Akun</span></li>
             </ul>
-            <div class="sidebar-footer"><span class="sidebar-footer-dot"></span>Operasional bisnis</div>
+            <div class="sidebar-footer">
+                <div class="sidebar-profile"><strong id="profile-name">Pengguna</strong><span id="profile-role">Role</span></div>
+                <button id="logout-button" class="logout-button" type="button"><i data-lucide="log-out"></i><span>Logout</span></button>
+            </div>
         </aside>
 
         <!-- KONTEN KANAN -->
@@ -46,11 +79,37 @@
                 <div class="topbar-meta">
                     <span class="topbar-clock"><i data-lucide="clock-3"></i><span id="live-datetime">Memuat waktu...</span></span>
                     <span id="database-status" class="connection-badge is-checking"><span class="connection-dot"></span><span>Memeriksa database</span></span>
+                    <div class="topbar-profile"><strong id="topbar-profile-name"></strong><span id="topbar-profile-role"></span></div>
+                    <button id="topbar-logout-button" class="btn btn-remove topbar-logout" type="button" aria-label="Logout"><i data-lucide="log-out"></i></button>
                 </div>
             </header>
+
+            <section id="page-access-denied" class="page-section">
+                <div class="card access-denied-card"><i data-lucide="shield-alert"></i><h1>Access Denied</h1><p>Role akun Anda tidak memiliki izin untuk membuka halaman ini.</p></div>
+            </section>
             
             <!-- HALAMAN 1: DASHBOARD -->
-            <section id="page-dashboard" class="page-section active">
+            <section id="page-dashboard" class="page-section">
+                <div id="admin-dashboard" class="hidden">
+                    <div class="header-title">
+                        <h1>Dashboard Operasional</h1>
+                        <p>Ringkasan kerja harian dan pintasan modul operasional.</p>
+                    </div>
+                    <div class="dashboard-grid">
+                        <article class="card"><h2>Bahan Persediaan</h2><strong id="admin-dashboard-ingredient-count">Memuat...</strong></article>
+                        <article class="card"><h2>Perlu Restock</h2><strong id="admin-dashboard-low-stock-count">Memuat...</strong></article>
+                    </div>
+                    <article id="admin-dashboard-actions" class="card executive-actions-card">
+                        <div class="executive-card-heading"><div><h2>Aksi Operasional</h2><p class="report-note">Menu yang tersedia untuk role Admin.</p></div></div>
+                        <div class="executive-quick-actions">
+                            <button type="button" class="quick-action" data-page="page-kasir"><i data-lucide="shopping-bag"></i><span>Kasir & penjualan</span></button>
+                            <button type="button" class="quick-action" data-page="page-resep"><i data-lucide="notebook-tabs"></i><span>Kelola resep</span></button>
+                            <button type="button" class="quick-action" data-page="page-transaksi"><i data-lucide="package-plus"></i><span>Persediaan & stok</span></button>
+                            <button type="button" class="quick-action" data-page="page-biaya"><i data-lucide="receipt-text"></i><span>Biaya operasional</span></button>
+                        </div>
+                    </article>
+                </div>
+                <div id="owner-dashboard-content">
                 <div class="header-title flex-between">
                     <div>
                         <h1>Executive Dashboard</h1>
@@ -118,7 +177,7 @@
                         <div class="executive-quick-actions">
                             <button type="button" class="quick-action" data-page="page-kasir"><i data-lucide="shopping-bag"></i><span>Transaksi penjualan baru</span></button>
                             <button type="button" class="quick-action" data-page="page-transaksi"><i data-lucide="package-plus"></i><span>Tambah pembelian bahan</span></button>
-                            <button type="button" class="quick-action" data-page="page-laporan" data-focus="expense-form"><i data-lucide="receipt-text"></i><span>Catat biaya operasional</span></button>
+                            <button type="button" class="quick-action" data-page="page-biaya" data-focus="admin-expense-description"><i data-lucide="receipt-text"></i><span>Catat biaya operasional</span></button>
                             <button type="button" class="quick-action" data-page="page-resep"><i data-lucide="notebook-tabs"></i><span>Kelola resep</span></button>
                             <button type="button" class="quick-action" data-page="page-dashboard" data-focus="stocktake-form"><i data-lucide="clipboard-check"></i><span>Stok opname</span></button>
                             <button type="button" class="quick-action" data-page="page-laporan"><i data-lucide="chart-no-axes-combined"></i><span>Lihat laporan keuangan</span></button>
@@ -245,6 +304,7 @@
                         </div>
                     </div>
                 </section>
+                </div>
             </section>
 
             <!-- HALAMAN 2: KASIR -->
@@ -820,6 +880,73 @@
                             <tbody id="payables-table">
                                 <tr><td colspan="5">Memuat utang...</td></tr>
                             </tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+
+            <section id="page-biaya" class="page-section">
+                <div class="header-title">
+                    <h1>Biaya Operasional</h1>
+                    <p>Catat pembelian dan biaya operasional usaha.</p>
+                </div>
+                <div class="card report-card">
+                    <form id="admin-expense-form" class="expense-form">
+                        <div class="form-group">
+                            <label for="admin-expense-description">Keterangan biaya</label>
+                            <input type="text" id="admin-expense-description" maxlength="200" required placeholder="Contoh: Listrik bulan ini">
+                        </div>
+                        <div class="form-group">
+                            <label for="admin-expense-category">Kategori</label>
+                            <input type="text" id="admin-expense-category" maxlength="100" required placeholder="Contoh: Utilitas">
+                        </div>
+                        <div class="form-group">
+                            <label for="admin-expense-amount">Nominal (Rp)</label>
+                            <input type="number" id="admin-expense-amount" min="1" step="1" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="admin-expense-payment-method">Pembayaran</label>
+                            <select id="admin-expense-payment-method" required>
+                                <option value="CASH">Dibayar sekarang</option>
+                                <option value="CREDIT">Utang / belum dibayar</option>
+                            </select>
+                        </div>
+                        <button type="submit" class="btn">Simpan Biaya</button>
+                    </form>
+                </div>
+                <div class="card report-card">
+                    <h2>Riwayat Biaya</h2>
+                    <div class="table-scroll">
+                        <table class="table">
+                            <thead><tr><th>Tanggal</th><th>Keterangan</th><th>Kategori</th><th>Nominal</th><th>Status</th></tr></thead>
+                            <tbody id="admin-expense-table"><tr><td colspan="5">Memuat biaya...</td></tr></tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+
+            <section id="page-users" class="page-section">
+                <div class="header-title flex-between">
+                    <div><h1>Manajemen Akun</h1><p>Buat akun operasional dan atur role pengguna.</p></div>
+                    <button id="users-refresh" class="btn btn-remove" type="button"><i data-lucide="refresh-cw"></i>Perbarui</button>
+                </div>
+                <div class="card report-card">
+                    <h2>Buat Akun</h2>
+                    <form id="create-account-form" class="account-form">
+                        <div class="form-group"><label for="account-full-name">Nama lengkap</label><input id="account-full-name" type="text" maxlength="120" autocomplete="name" required></div>
+                        <div class="form-group"><label for="account-email">Email</label><input id="account-email" type="email" autocomplete="email" required></div>
+                        <div class="form-group"><label for="account-password">Password (minimal 8 karakter)</label><input id="account-password" type="password" minlength="8" autocomplete="new-password" required></div>
+                        <div class="form-group"><label for="account-password-confirm">Konfirmasi password</label><input id="account-password-confirm" type="password" minlength="8" autocomplete="new-password" required></div>
+                        <div class="form-group"><label for="account-role">Role</label><select id="account-role" required><option value="admin">Admin</option><option value="cashier">Cashier</option><option value="owner">Owner</option></select></div>
+                        <button type="submit" class="btn">Buat Akun</button>
+                    </form>
+                </div>
+                <div class="card report-card">
+                    <h2>Pengguna Terdaftar</h2>
+                    <div class="table-scroll">
+                        <table class="table">
+                            <thead><tr><th>Nama</th><th>Email</th><th>Role</th><th>Status</th><th>Aksi</th></tr></thead>
+                            <tbody id="account-users-table"><tr><td colspan="5">Memuat pengguna...</td></tr></tbody>
                         </table>
                     </div>
                 </div>

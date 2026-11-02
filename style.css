@@ -705,3 +705,56 @@ label { color: #334155; font-size: .82rem; }
     body.pos-printing .pos-receipt-actions, body.pos-printing .pos-new-sale-button { display: none !important; }
     body.pos-printing .receipt-brand, body.pos-printing .receipt-meta, body.pos-printing .receipt-items, body.pos-printing .receipt-total, body.pos-printing .receipt-cash, body.pos-printing .receipt-thanks { color: #000 !important; }
 }
+
+.app-container[hidden], #login-view[hidden] { display: none !important; }
+.sidebar-menu li[hidden] { display: none !important; }
+.auth-screen { display: grid; min-height: 100vh; min-height: 100dvh; place-items: center; padding: 24px; background: radial-gradient(circle at 15% 15%, #fee2e2 0, transparent 34%), #f1f5f9; }
+.auth-card { width: min(100%, 440px); padding: clamp(24px, 6vw, 40px); border: 1px solid rgba(226,232,240,.9); border-radius: 24px; background: #fff; box-shadow: 0 24px 70px rgba(15,23,42,.12); }
+.auth-brand { display: flex; align-items: center; gap: 14px; margin-bottom: 32px; }
+.auth-brand .brand-mark { width: 52px; height: 52px; background: #fff1f0; font-size: 1.8rem; }
+.auth-brand h1 { color: #172033; font-size: 1.35rem; letter-spacing: -.03em; }
+.auth-brand p, .auth-form > div:first-child p { color: #64748b; font-size: .88rem; }
+.auth-form { display: grid; gap: 18px; }
+.auth-form h2 { margin-bottom: 5px; color: #172033; font-size: 1.4rem; letter-spacing: -.035em; }
+.auth-form .form-group { margin: 0; }
+.auth-form input { min-height: 48px; }
+.password-field { position: relative; }
+.password-field input { padding-right: 100px; }
+.password-toggle { position: absolute; top: 50%; right: 12px; transform: translateY(-50%); border: 0; background: transparent; color: #dc3e34; font-size: .78rem; font-weight: 700; cursor: pointer; }
+.auth-submit { justify-content: center; min-height: 48px; margin-top: 2px; }
+.auth-footnote, .auth-message { color: #64748b; font-size: .8rem; text-align: center; }
+.auth-error { padding: 11px 13px; border: 1px solid #fecaca; border-radius: 10px; background: #fef2f2; color: #b91c1c; font-size: .84rem; }
+.sidebar-footer { align-items: stretch; flex-direction: column; margin-top: auto; padding: 16px 10px 0; border-top: 1px solid rgba(148,163,184,.16); }
+.sidebar-profile { display: grid; gap: 3px; min-width: 0; }
+.sidebar-profile strong { overflow: hidden; color: #f8fafc; font-size: .8rem; text-overflow: ellipsis; white-space: nowrap; }
+.sidebar-profile span { color: #a5b4fc; font-size: .72rem; }
+.logout-button { display: flex; align-items: center; justify-content: center; gap: 8px; min-height: 40px; margin-top: 4px; border: 1px solid rgba(248,113,103,.22); border-radius: 10px; background: rgba(248,113,103,.1); color: #fecaca; font-size: .8rem; font-weight: 700; cursor: pointer; }
+.logout-button:hover { background: rgba(248,113,103,.18); }
+.logout-button svg, .topbar-logout svg { width: 16px; height: 16px; }
+.topbar-profile { display: grid; gap: 1px; min-width: 0; }
+.topbar-profile strong { overflow: hidden; max-width: 150px; color: #172033; font-size: .76rem; text-overflow: ellipsis; white-space: nowrap; }
+.topbar-profile span { color: #64748b; font-size: .68rem; }
+.topbar-logout { min-height: 36px; padding: 8px 10px; }
+.access-denied-card { display: grid; justify-items: center; gap: 10px; max-width: 520px; margin: 12vh auto; padding: 40px; text-align: center; }
+.access-denied-card > svg { width: 42px; height: 42px; color: #dc3e34; }
+.access-denied-card p { color: #64748b; }
+.account-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; align-items: end; }
+.account-form .form-group { margin: 0; }
+.account-form > button { min-height: 44px; }
+#account-users-table select { min-width: 120px; padding: 8px; }
+#account-users-table button { white-space: nowrap; }
+@media (max-width: 800px) {
+    .sidebar-footer { display: flex; align-items: center; }
+    .sidebar-profile { display: none; }
+    .logout-button { width: 40px; min-height: 40px; margin: 0; padding: 0; }
+    .logout-button span { display: none; }
+    .topbar-profile { display: grid; }
+    .topbar-logout { display: inline-flex; }
+    .topbar-meta { flex-wrap: wrap; }
+}
+@media (max-width: 520px) {
+    .auth-screen { padding: 14px; }
+    .auth-card { border-radius: 18px; }
+    .account-form { grid-template-columns: 1fr; }
+    .topbar-meta { flex-wrap: wrap; }
+}

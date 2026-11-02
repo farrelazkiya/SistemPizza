@@ -1,6 +1,16 @@
 const SUPABASE_URL = "https://llpcuhsotoadmljeryhz.supabase.co"; 
 const SUPABASE_ANON_KEY = "sb_publishable_qEmqkUCuZgmTBmwTSLMvNg_1mVAjU9p"; 
 const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+let authenticatedProfile = null;
+let initializedUserId = null;
+let authStateRequest = 0;
+let authErrorAfterSignout = '';
+const ROLE_LABELS = { owner: 'Owner', admin: 'Admin', cashier: 'Cashier' };
+const ROLE_PAGES = {
+    owner: ['page-dashboard', 'page-kasir', 'page-resep', 'page-transaksi', 'page-biaya', 'page-jurnal', 'page-laporan', 'page-users'],
+    admin: ['page-dashboard', 'page-kasir', 'page-resep', 'page-transaksi', 'page-biaya'],
+    cashier: ['page-kasir']
+};
 const formatRp = (num) => Number(num).toLocaleString('id-ID');
 const inventoryLogCost = (log) => {
     const batchConsumptions = log.inventory_batch_consumptions || [];
@@ -98,13 +108,58 @@ function escapeHtml(value) {
     })[character]);
 }
 
+function canAccessPage(pageId) {
+    return Boolean(authenticatedProfile && ROLE_PAGES[authenticatedProfile.role]?.includes(pageId));
+}
+
+function applyRoleAccess() {
+    const allowedPages = ROLE_PAGES[authenticatedProfile.role] || [];
+    document.querySelectorAll('.sidebar-menu li[data-page]').forEach(item => {
+        item.hidden = !allowedPages.includes(item.dataset.page);
+        item.classList.remove('active');
+    });
+    document.querySelectorAll('.sidebar-menu li.nav-section-title').forEach(sectionTitle => {
+        let next = sectionTitle.nextElementSibling;
+        let hasVisibleLink = false;
+        while (next && !next.classList.contains('nav-section-title')) {
+            if (next.matches('li[data-page]:not([hidden])')) hasVisibleLink = true;
+            next = next.nextElementSibling;
+        }
+        sectionTitle.hidden = !hasVisibleLink;
+    });
+
+    const isOwner = authenticatedProfile.role === 'owner';
+    document.getElementById('owner-dashboard-content').classList.toggle('hidden', !isOwner);
+    document.getElementById('admin-dashboard').classList.toggle('hidden', authenticatedProfile.role !== 'admin');
+    document.querySelector('#page-dashboard > #owner-dashboard-content .header-title h1').textContent =
+        isOwner ? 'Executive Dashboard' : 'Dashboard Operasional';
+
+    const name = authenticatedProfile.full_name || authenticatedProfile.email;
+    document.getElementById('profile-name').textContent = name;
+    document.getElementById('profile-role').textContent = ROLE_LABELS[authenticatedProfile.role];
+    document.getElementById('topbar-profile-name').textContent = name;
+    document.getElementById('topbar-profile-role').textContent = ROLE_LABELS[authenticatedProfile.role];
+}
+
 function switchPage(pageId, element) {
+    if (!canAccessPage(pageId)) {
+        document.querySelectorAll('.page-section').forEach(page => page.classList.remove('active'));
+        document.getElementById('page-access-denied').classList.add('active');
+        document.querySelectorAll('.sidebar-menu li').forEach(item => item.classList.remove('active'));
+        document.getElementById('current-page-title').textContent = 'Access Denied';
+        showToast('Role akun Anda tidak memiliki izin untuk membuka halaman ini.', 'error');
+        return;
+    }
     document.querySelectorAll('.page-section').forEach(page => page.classList.remove('active'));
     const activePage = document.getElementById(pageId);
+    if (!activePage) throw new Error(`Halaman ${pageId} tidak ditemukan.`);
     activePage.classList.add('active');
     document.querySelectorAll('.sidebar-menu li').forEach(li => li.classList.remove('active'));
-    element.classList.add('active');
-    document.getElementById('current-page-title').textContent = activePage.querySelector('h1')?.textContent || 'Workspace';
+    if (element) element.classList.add('active');
+    const heading = activePage.querySelector(
+        '#admin-dashboard:not(.hidden) h1, #owner-dashboard-content:not(.hidden) h1'
+    ) || activePage.querySelector('h1');
+    document.getElementById('current-page-title').textContent = heading?.textContent || 'Workspace';
     if (pageId === 'page-laporan' && ['journal', 'ledger'].includes(activeReportTab)) {
         switchFinancialReportTab('profit-loss', false);
     } else if (pageId === 'page-jurnal' && !['journal', 'ledger'].includes(activeReportTab)) {
@@ -115,11 +170,16 @@ function switchPage(pageId, element) {
         loadAccountingJournal();
         loadSalesJournal();
     }
+    if (pageId === 'page-users') loadAccountUsers();
+    if (pageId === 'page-biaya') loadAdminExpenses();
 }
 
 function navigateToPage(pageId, focusId = '') {
-    const pageLink = document.querySelector(`.sidebar-menu li[onclick*="${pageId}"]`);
-    if (!pageLink) throw new Error(`Navigasi ke halaman ${pageId} tidak ditemukan.`);
+    const pageLink = document.querySelector(`.sidebar-menu li[data-page="${pageId}"]`);
+    if (!pageLink || !canAccessPage(pageId)) {
+        switchPage(pageId, null);
+        return;
+    }
     switchPage(pageId, pageLink);
     if (!focusId) return;
     window.setTimeout(() => {
@@ -154,6 +214,181 @@ function toggleDynamicFields() {
     }
 }
 
+function setLoginMessage(message = '') {
+    const error = document.getElementById('login-error');
+    error.textContent = message;
+    error.classList.toggle('hidden', !message);
+}
+
+function showLoginView(message = '') {
+    document.querySelector('.app-container').hidden = true;
+    document.getElementById('login-view').hidden = false;
+    document.getElementById('auth-loading').classList.add('hidden');
+    document.getElementById('login-form').classList.remove('hidden');
+    setLoginMessage(message);
+}
+
+async function syncAuthSession(session) {
+    const requestId = ++authStateRequest;
+    const app = document.querySelector('.app-container');
+    if (!session?.user) {
+        authenticatedProfile = null;
+        initializedUserId = null;
+        menuItems = [];
+        app.hidden = true;
+        const message = authErrorAfterSignout;
+        authErrorAfterSignout = '';
+        showLoginView(message);
+        return;
+    }
+
+    document.getElementById('login-view').hidden = false;
+    document.getElementById('auth-loading').classList.remove('hidden');
+    document.getElementById('login-form').classList.add('hidden');
+    app.hidden = true;
+    if (authenticatedProfile?.id === session.user.id) {
+        document.getElementById('login-view').hidden = true;
+        app.hidden = false;
+        return;
+    }
+
+    try {
+        const { data: profile, error } = await supabaseClient.from('profiles')
+            .select('id, full_name, role')
+            .eq('id', session.user.id)
+            .maybeSingle();
+        if (requestId !== authStateRequest) return;
+        if (error) throw error;
+        if (!profile || !ROLE_LABELS[profile.role]) {
+            throw new Error('Profil atau role akun belum disiapkan. Minta Owner memeriksa konfigurasi Supabase.');
+        }
+
+        authenticatedProfile = {
+            ...profile,
+            email: session.user.email || ''
+        };
+        applyRoleAccess();
+        document.getElementById('login-view').hidden = true;
+        app.hidden = false;
+        const defaultPage = authenticatedProfile.role === 'cashier' ? 'page-kasir' : 'page-dashboard';
+        const defaultLink = document.querySelector(`.sidebar-menu li[data-page="${defaultPage}"]`);
+        switchPage(defaultPage, defaultLink);
+        if (initializedUserId !== session.user.id) {
+            initializedUserId = session.user.id;
+            initializeOperationalData();
+        }
+    } catch (error) {
+        if (requestId !== authStateRequest) return;
+        console.error('Gagal memuat profil autentikasi:', error);
+        authenticatedProfile = null;
+        app.hidden = true;
+        const message = error.message || 'Profil pengguna gagal dimuat.';
+        authErrorAfterSignout = message;
+        const { error: signOutError } = await supabaseClient.auth.signOut();
+        if (signOutError) {
+            console.error('Gagal mengakhiri sesi dengan profil tidak valid:', signOutError);
+            authErrorAfterSignout = '';
+        }
+        showLoginView(message);
+    }
+}
+
+async function invokeAccountManagement(payload) {
+    const { data, error } = await supabaseClient.functions.invoke('admin-users', { body: payload });
+    if (error) {
+        const response = error.context;
+        if (response instanceof Response) {
+            const result = await response.json().catch(() => null);
+            throw new Error(result?.error || error.message);
+        }
+        throw error;
+    }
+    if (data?.error) throw new Error(data.error);
+    return data;
+}
+
+async function loadAccountUsers() {
+    const table = document.getElementById('account-users-table');
+    table.innerHTML = '<tr><td colspan="5">Memuat pengguna...</td></tr>';
+    try {
+        const { users } = await invokeAccountManagement({ action: 'list' });
+        table.innerHTML = users.length
+            ? users.map(user => `
+                <tr>
+                    <td>${escapeHtml(user.full_name || '—')}</td>
+                    <td>${escapeHtml(user.email || '—')}</td>
+                    <td>
+                        <select data-user-role="${escapeHtml(user.id)}" aria-label="Role ${escapeHtml(user.email || user.id)}" ${user.id === authenticatedProfile.id ? 'disabled' : ''}>
+                            ${Object.entries(ROLE_LABELS).map(([role, label]) => `<option value="${role}" ${role === user.role ? 'selected' : ''}>${label}</option>`).join('')}
+                        </select>
+                    </td>
+                    <td><span class="badge ${user.disabled ? 'badge-out' : 'badge-in'}">${user.disabled ? 'Nonaktif' : 'Aktif'}</span></td>
+                    <td><button type="button" class="btn btn-remove" data-user-toggle="${escapeHtml(user.id)}" data-disabled="${user.disabled}" ${user.id === authenticatedProfile.id ? 'disabled' : ''}>${user.disabled ? 'Aktifkan' : 'Nonaktifkan'}</button></td>
+                </tr>
+            `).join('')
+            : '<tr><td colspan="5">Belum ada pengguna.</td></tr>';
+    } catch (error) {
+        console.error('Gagal memuat daftar pengguna:', error);
+        table.innerHTML = `<tr><td colspan="5">${escapeHtml(error.message || 'Daftar pengguna gagal dimuat.')}</td></tr>`;
+        showToast(error.message || 'Daftar pengguna gagal dimuat.', 'error');
+    }
+}
+
+async function loadAdminExpenses() {
+    const table = document.getElementById('admin-expense-table');
+    const { data, error } = await supabaseClient.from('operating_expenses')
+        .select('description, category, amount, payment_method, created_at, paid_at')
+        .order('created_at', { ascending: false })
+        .limit(100);
+    if (error) {
+        console.error('Gagal memuat biaya operasional:', error);
+        table.innerHTML = `<tr><td colspan="5">${escapeHtml(error.message)}</td></tr>`;
+        return;
+    }
+    table.innerHTML = data.length
+        ? data.map(expense => `
+            <tr>
+                <td>${new Date(expense.created_at).toLocaleDateString('id-ID')}</td>
+                <td>${escapeHtml(expense.description)}</td>
+                <td>${escapeHtml(expense.category)}</td>
+                <td>Rp ${formatRp(expense.amount)}</td>
+                <td>${expense.paid_at ? 'Lunas' : expense.payment_method === 'CREDIT' ? 'Belum dibayar' : 'Dibayar'}</td>
+            </tr>
+        `).join('')
+        : '<tr><td colspan="5">Belum ada biaya tercatat.</td></tr>';
+}
+
+function initializeOperationalData() {
+    const today = localDateValue(new Date());
+    document.getElementById('dashboard-start-date').value = today;
+    document.getElementById('dashboard-end-date').value = today;
+    const reportToday = new Date();
+    setReportPeriodOptions();
+    document.getElementById('report-start-date').value = localDateValue(new Date(reportToday.getFullYear(), reportToday.getMonth(), 1));
+    document.getElementById('report-end-date').value = localDateValue(reportToday);
+    updateReportDateMode();
+    applyAccountingPeriodFilter();
+    document.getElementById('accounting-month').value = document.getElementById('report-month').value;
+    document.getElementById('accounting-year').value = document.getElementById('report-year').value;
+    switchFinancialReportTab('profit-loss', false);
+
+    loadSuppliersAndMenus();
+    loadPosSalesHistory();
+    loadTodaySalesTotal();
+    renderPosCart();
+
+    if (authenticatedProfile.role !== 'cashier') loadInventory();
+    if (authenticatedProfile.role === 'owner') {
+        loadJournalAndAnalysis();
+        loadSalesJournal();
+        loadFinancialReport();
+        loadAccountingJournal();
+        loadAdminExpenses();
+    } else if (authenticatedProfile.role === 'admin') {
+        loadAdminExpenses();
+    }
+}
+
 async function loadSuppliersAndMenus() {
     const { data: menus, error: menuError } = await supabaseClient.from('menu_items')
         .select('id, name, selling_price, is_available')
@@ -180,6 +415,7 @@ async function loadSuppliersAndMenus() {
     recipeMenuSelect.innerHTML = `<option value="">-- Pilih Menu Pizza --</option>${menuOptions}`;
     renderPosMenuGrid();
 
+    if (authenticatedProfile.role === 'cashier') return;
     const ingredientSelect = document.getElementById('recipe-ingredient-select');
     const { data: ingredients, error } = await supabaseClient.from('ingredients').select('id, name, unit').order('name');
     if (error) {
@@ -1399,6 +1635,9 @@ async function loadInventory() {
         return;
     }
     inventorySnapshot = data || [];
+    document.getElementById('admin-dashboard-ingredient-count').textContent = String(data.length);
+    document.getElementById('admin-dashboard-low-stock-count').textContent =
+        String(data.filter(item => Number(item.stock_qty) <= Number(item.min_stock)).length);
 
     let totalAssetRupiah = 0;
     const tableBody = document.getElementById('inventory-table');
@@ -1514,7 +1753,7 @@ async function loadInventory() {
     
     // Panggil fungsi render chart
     renderChart(chartLabels, chartData);
-    await loadExecutiveDashboard();
+    if (authenticatedProfile.role === 'owner') await loadExecutiveDashboard();
 }
 
 async function loadJournalAndAnalysis(filterIngredientId = '') {
@@ -3222,6 +3461,11 @@ document.getElementById('executive-actions').addEventListener('click', event => 
     if (!button) return;
     navigateToPage(button.dataset.page, button.dataset.focus || '');
 });
+document.getElementById('admin-dashboard-actions').addEventListener('click', event => {
+    const button = event.target.closest('.quick-action');
+    if (!button) return;
+    navigateToPage(button.dataset.page, button.dataset.focus || '');
+});
 
 document.getElementById('expense-form').addEventListener('submit', async (event) => {
     event.preventDefault();
@@ -3267,33 +3511,162 @@ document.getElementById('payables-table').addEventListener('click', async (event
     }
 });
 
+document.getElementById('create-account-form').addEventListener('submit', async event => {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const password = document.getElementById('account-password').value;
+    if (password !== document.getElementById('account-password-confirm').value) {
+        showToast('Konfirmasi password tidak cocok.', 'error');
+        return;
+    }
+
+    const submit = form.querySelector('button[type="submit"]');
+    submit.disabled = true;
+    try {
+        await invokeAccountManagement({
+            action: 'create',
+            fullName: document.getElementById('account-full-name').value.trim(),
+            email: document.getElementById('account-email').value.trim(),
+            password,
+            role: document.getElementById('account-role').value
+        });
+        form.reset();
+        showToast('Akun berhasil dibuat.');
+        await loadAccountUsers();
+    } catch (error) {
+        console.error('Gagal membuat akun:', error);
+        showToast(error.message || 'Akun gagal dibuat.', 'error');
+    } finally {
+        submit.disabled = false;
+    }
+});
+
+document.getElementById('users-refresh').addEventListener('click', loadAccountUsers);
+document.getElementById('account-users-table').addEventListener('change', async event => {
+    const select = event.target.closest('[data-user-role]');
+    if (!select) return;
+    const previousRole = select.querySelector('option[selected]')?.value || select.value;
+    try {
+        await invokeAccountManagement({
+            action: 'set-role',
+            userId: select.dataset.userRole,
+            role: select.value
+        });
+        showToast('Role pengguna berhasil diperbarui.');
+        await loadAccountUsers();
+    } catch (error) {
+        console.error('Gagal mengubah role:', error);
+        showToast(error.message || 'Role gagal diperbarui.', 'error');
+        select.value = previousRole;
+    }
+});
+document.getElementById('account-users-table').addEventListener('click', async event => {
+    const button = event.target.closest('[data-user-toggle]');
+    if (!button) return;
+    const currentlyDisabled = button.dataset.disabled === 'true';
+    const action = currentlyDisabled ? 'aktifkan' : 'nonaktifkan';
+    if (!window.confirm(`Apakah Anda yakin ingin ${action} akun ini?`)) return;
+    button.disabled = true;
+    try {
+        await invokeAccountManagement({
+            action: 'set-active',
+            userId: button.dataset.userToggle,
+            active: currentlyDisabled
+        });
+        showToast(`Akun berhasil ${currentlyDisabled ? 'diaktifkan' : 'dinonaktifkan'}.`);
+        await loadAccountUsers();
+    } catch (error) {
+        console.error('Gagal mengubah status akun:', error);
+        showToast(error.message || 'Status akun gagal diperbarui.', 'error');
+        button.disabled = false;
+    }
+});
+
+document.getElementById('admin-expense-form').addEventListener('submit', async event => {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const submit = form.querySelector('button[type="submit"]');
+    submit.disabled = true;
+    try {
+        const { error } = await supabaseClient.rpc('create_operating_expense', {
+            p_description: document.getElementById('admin-expense-description').value.trim(),
+            p_category: document.getElementById('admin-expense-category').value.trim(),
+            p_amount: Number(document.getElementById('admin-expense-amount').value),
+            p_payment_method: document.getElementById('admin-expense-payment-method').value
+        });
+        if (error) throw error;
+        form.reset();
+        await loadAdminExpenses();
+        showToast('Biaya operasional berhasil dicatat.');
+    } catch (error) {
+        console.error('Gagal mencatat biaya operasional:', error);
+        showToast(error.message || 'Biaya operasional gagal dicatat.', 'error');
+    } finally {
+        submit.disabled = false;
+    }
+});
+
+document.getElementById('login-form').addEventListener('submit', async event => {
+    event.preventDefault();
+    const submit = document.getElementById('login-submit');
+    submit.disabled = true;
+    setLoginMessage('');
+    try {
+        const { error } = await supabaseClient.auth.signInWithPassword({
+            email: document.getElementById('login-email').value.trim(),
+            password: document.getElementById('login-password').value
+        });
+        if (error) throw error;
+        document.getElementById('login-password').value = '';
+    } catch (error) {
+        setLoginMessage(error.message === 'Invalid login credentials'
+            ? 'Email atau password salah.'
+            : error.message || 'Login gagal. Silakan coba lagi.');
+    } finally {
+        submit.disabled = false;
+    }
+});
+
+document.getElementById('toggle-password').addEventListener('click', event => {
+    const password = document.getElementById('login-password');
+    const visible = password.type === 'password';
+    password.type = visible ? 'text' : 'password';
+    event.currentTarget.textContent = visible ? 'Sembunyikan' : 'Tampilkan';
+    event.currentTarget.setAttribute('aria-label', visible ? 'Sembunyikan password' : 'Tampilkan password');
+});
+
+const signOut = async () => {
+    const { error } = await supabaseClient.auth.signOut();
+    if (error) {
+        console.error('Gagal logout:', error);
+        showToast(error.message || 'Logout gagal.', 'error');
+    }
+};
+document.getElementById('logout-button').addEventListener('click', signOut);
+document.getElementById('topbar-logout-button').addEventListener('click', signOut);
+
 // Inisialisasi awal saat web dibuka
 if (window.lucide) window.lucide.createIcons();
 updateLiveDateTime();
 window.setInterval(updateLiveDateTime, 60_000);
 window.addEventListener('online', () => {
+    if (!authenticatedProfile) return;
     setDatabaseStatus('checking');
     loadSuppliersAndMenus();
 });
 window.addEventListener('offline', () => setDatabaseStatus('offline'));
-loadSuppliersAndMenus();
-loadInventory();
-loadJournalAndAnalysis();
-loadSalesJournal();
-loadTodaySalesTotal();
-loadPosSalesHistory();
-renderPosCart();
-const dashboardToday = localDateValue(new Date());
-document.getElementById('dashboard-start-date').value = dashboardToday;
-document.getElementById('dashboard-end-date').value = dashboardToday;
-const reportToday = new Date();
-setReportPeriodOptions();
-document.getElementById('report-start-date').value = localDateValue(new Date(reportToday.getFullYear(), reportToday.getMonth(), 1));
-document.getElementById('report-end-date').value = localDateValue(reportToday);
-updateReportDateMode();
-applyAccountingPeriodFilter();
-document.getElementById('accounting-month').value = document.getElementById('report-month').value;
-document.getElementById('accounting-year').value = document.getElementById('report-year').value;
-switchFinancialReportTab('profit-loss', false);
-loadFinancialReport();
-loadAccountingJournal();
+document.getElementById('auth-loading').classList.remove('hidden');
+supabaseClient.auth.onAuthStateChange((_event, session) => {
+    window.setTimeout(() => { void syncAuthSession(session); }, 0);
+});
+supabaseClient.auth.getSession().then(({ data, error }) => {
+    if (error) {
+        console.error('Gagal memeriksa sesi:', error);
+        showLoginView(error.message || 'Sesi gagal diperiksa.');
+        return;
+    }
+    void syncAuthSession(data.session);
+}).catch(error => {
+    console.error('Gagal memeriksa sesi:', error);
+    showLoginView(error.message || 'Sesi gagal diperiksa.');
+});
